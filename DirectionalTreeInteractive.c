@@ -32,6 +32,7 @@ typedef struct
     double position[MAX_DIM];
     double currentValue;
     double stepSize;
+    double rotation;
     int searchDepth;
     DirectionCandidate candidates[DIRECTION_COUNT];
 } Agent;
@@ -108,10 +109,8 @@ static double Evaluate(const double* position)
 
 static void InitializeDirections(Agent* agent)
 {
-    double rotation = RandomDouble(0.0, 2.0 * M_PI);
-
     for (int i = 0; i < DIRECTION_COUNT; i++) {
-        double angle = rotation
+        double angle = agent->rotation
             + 2.0 * M_PI
                 * (double)i
                 / (double)DIRECTION_COUNT;
@@ -290,6 +289,8 @@ static void TeleportAgentToCell(
     agent->stepSize = (activeProblem->upper - activeProblem->lower)
         * 0.05;
 
+    agent->rotation = RandomDouble(0.0, 2.0 * M_PI);
+
     StartSearch(agent);
 }
 
@@ -442,6 +443,8 @@ static void DirectionalTreeInteractiveInit(
 
         agent->stepSize = (problem->upper - problem->lower)
             * 0.05;
+
+        agent->rotation = RandomDouble(0.0, 2.0 * M_PI);
 
         StartSearch(agent);
     }
