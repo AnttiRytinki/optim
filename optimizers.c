@@ -6,6 +6,7 @@ extern InteractiveOptimizer ExploreExploitOptimizer;
 extern InteractiveOptimizer RandomSearchOptimizer;
 extern InteractiveOptimizer HillClimbOptimizer;
 extern InteractiveOptimizer DifferentialEvolutionOptimizer;
+extern InteractiveOptimizer DirectionalTreeOptimizer;
 
 double RandomDouble(double min, double max)
 {
@@ -17,7 +18,8 @@ InteractiveOptimizer *Optimizers[] =
     &ExploreExploitOptimizer,
     &RandomSearchOptimizer,
     &HillClimbOptimizer,
-    &DifferentialEvolutionOptimizer
+    &DifferentialEvolutionOptimizer,
+    &DirectionalTreeOptimizer
 };
 
 int OptimizerCount = sizeof(Optimizers) / sizeof(Optimizers[0]);

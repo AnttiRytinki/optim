@@ -14,36 +14,36 @@
 #define SEEKER_EXPLOITER 1
 #define SEEKER_REFINER 2
 
-static int ToScreenX(double x, const TestProblem *problem)
+#define DIRECTIONAL_TREE_AGENT 5
+#define DIRECTIONAL_TREE_ACTIVE 6
+#define DIRECTIONAL_TREE_INACTIVE 7
+
+static int ToScreenX(double x, const TestProblem* problem)
 {
     return (int)((x - problem->lower) / (problem->upper - problem->lower) * WIDTH);
 }
 
-static int ToScreenY(double y, const TestProblem *problem)
+static int ToScreenY(double y, const TestProblem* problem)
 {
     return HEIGHT - (int)((y - problem->lower) / (problem->upper - problem->lower) * HEIGHT);
 }
 
-static void DrawCircle(SDL_Renderer *renderer, int cx, int cy, int radius)
+static void DrawCircle(SDL_Renderer* renderer, int cx, int cy, int radius)
 {
-    for (int y = -radius; y <= radius; y++)
-    {
-        for (int x = -radius; x <= radius; x++)
-        {
+    for (int y = -radius; y <= radius; y++) {
+        for (int x = -radius; x <= radius; x++) {
             if (x * x + y * y <= radius * radius)
                 SDL_RenderDrawPoint(renderer, cx + x, cy + y);
         }
     }
 }
 
-static void DrawBackground(SDL_Renderer *renderer, const TestProblem *problem)
+static void DrawBackground(SDL_Renderer* renderer, const TestProblem* problem)
 {
     double point[MAX_DIM];
 
-    for (int py = 0; py < HEIGHT; py += 4)
-    {
-        for (int px = 0; px < WIDTH; px += 4)
-        {
+    for (int py = 0; py < HEIGHT; py += 4) {
+        for (int px = 0; px < WIDTH; px += 4) {
             point[0] = problem->lower + (double)px / WIDTH * (problem->upper - problem->lower);
             point[1] = problem->lower + (double)(HEIGHT - py) / HEIGHT * (problem->upper - problem->lower);
 
@@ -65,14 +65,13 @@ static void DrawBackground(SDL_Renderer *renderer, const TestProblem *problem)
 }
 
 static void DrawSeekers(
-    SDL_Renderer *renderer,
-    const TestProblem *problem,
-    InteractiveOptimizer *optimizer)
+    SDL_Renderer* renderer,
+    const TestProblem* problem,
+    InteractiveOptimizer* optimizer)
 {
     int count = optimizer->GetPointCount();
 
-    for (int i = 0; i < count; i++)
-    {
+    for (int i = 0; i < count; i++) {
         double x;
         double y;
         int type;
@@ -85,6 +84,12 @@ static void DrawSeekers(
             SDL_SetRenderDrawColor(renderer, 80, 160, 255, 255);
         else if (type == SEEKER_REFINER)
             SDL_SetRenderDrawColor(renderer, 255, 255, 80, 255);
+        else if (type == DIRECTIONAL_TREE_AGENT)
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        else if (type == DIRECTIONAL_TREE_ACTIVE)
+            SDL_SetRenderDrawColor(renderer, 80, 160, 255, 255);
+        else if (type == DIRECTIONAL_TREE_INACTIVE)
+            SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
         else
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 
@@ -93,9 +98,9 @@ static void DrawSeekers(
 }
 
 static void DrawBest(
-    SDL_Renderer *renderer,
-    const TestProblem *problem,
-    InteractiveOptimizer *optimizer)
+    SDL_Renderer* renderer,
+    const TestProblem* problem,
+    InteractiveOptimizer* optimizer)
 {
     double x;
     double y;
@@ -118,13 +123,12 @@ int main(void)
 
     Optimizers[selectedOptimizer]->Init(&problem);
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
-    {
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         printf("SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
 
-    SDL_Window *window = SDL_CreateWindow(
+    SDL_Window* window = SDL_CreateWindow(
         Optimizers[selectedOptimizer]->name,
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
@@ -132,17 +136,15 @@ int main(void)
         HEIGHT,
         0);
 
-    if (window == NULL)
-    {
+    if (window == NULL) {
         printf("SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
 
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
-    if (renderer == NULL)
-    {
+    if (renderer == NULL) {
         printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -151,25 +153,21 @@ int main(void)
 
     int running = 1;
 
-    while (running)
-    {
+    while (running) {
         SDL_Event event;
 
-        while (SDL_PollEvent(&event))
-        {
+        while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT)
                 running = 0;
 
-            if (event.type == SDL_KEYDOWN)
-            {
+            if (event.type == SDL_KEYDOWN) {
                 if (event.key.keysym.sym == SDLK_ESCAPE)
                     running = 0;
 
                 if (event.key.keysym.sym == SDLK_SPACE)
                     Optimizers[selectedOptimizer]->Step();
 
-                if (event.key.keysym.sym == SDLK_RETURN)
-                {
+                if (event.key.keysym.sym == SDLK_RETURN) {
                     for (int i = 0; i < 100; i++)
                         Optimizers[selectedOptimizer]->Step();
                 }
@@ -177,8 +175,7 @@ int main(void)
                 if (event.key.keysym.sym == SDLK_r)
                     Optimizers[selectedOptimizer]->Init(&problem);
 
-                if (event.key.keysym.sym == SDLK_TAB)
-                {
+                if (event.key.keysym.sym == SDLK_TAB) {
                     selectedOptimizer++;
 
                     if (selectedOptimizer >= OptimizerCount)
