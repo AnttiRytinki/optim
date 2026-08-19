@@ -11,13 +11,13 @@
 #define HQ_INTERVAL 20
 #define HQ_TELEPORT_COUNT 2
 
+#define HQ_EXPLORATION_WEIGHT 0.5
+#define HQ_QUALITY_WEIGHT 0.5
+
 #define DIRECTIONAL_TREE_AGENT_TYPE 5
 #define DIRECTIONAL_TREE_ACTIVE_TYPE 6
 #define DIRECTIONAL_TREE_INACTIVE_TYPE 7
 #define DIRECTIONAL_TREE_TESTED_TYPE 8
-
-#define HQ_EXPLORATION_WEIGHT 0.5
-#define HQ_QUALITY_WEIGHT 0.5
 
 typedef struct
 {
@@ -108,10 +108,13 @@ static double Evaluate(const double* position)
 
 static void InitializeDirections(Agent* agent)
 {
+    double rotation = RandomDouble(0.0, 2.0 * M_PI);
+
     for (int i = 0; i < DIRECTION_COUNT; i++) {
-        double angle = 2.0 * M_PI
-            * (double)i
-            / (double)DIRECTION_COUNT;
+        double angle = rotation
+            + 2.0 * M_PI
+                * (double)i
+                / (double)DIRECTION_COUNT;
 
         for (int d = 0; d < activeProblem->dim; d++)
             agent->candidates[i].direction[d] = 0.0;
@@ -124,6 +127,8 @@ static void InitializeDirections(Agent* agent)
 static void StartSearch(Agent* agent)
 {
     agent->searchDepth = 1;
+
+    InitializeDirections(agent);
 
     for (int i = 0; i < DIRECTION_COUNT; i++) {
         agent->candidates[i].active = 1;
@@ -303,9 +308,6 @@ static void HeadquartersRedistribute(void)
             bestValue[x][y] = INFINITY;
     }
 
-    /*
-     * Build density and quality maps.
-     */
     for (int i = 0; i < testedPointCount; i++) {
         int cellX = (int)((testedPoints[i].position[0]
                               - activeProblem->lower)
@@ -344,9 +346,6 @@ static void HeadquartersRedistribute(void)
     int selectedAgents[AGENT_COUNT] = { 0 };
 
     for (int t = 0; t < HQ_TELEPORT_COUNT; t++) {
-        /*
-         * Find worst currently active agent.
-         */
         int worstAgent = -1;
         double worstAgentValue = -INFINITY;
 
@@ -365,9 +364,6 @@ static void HeadquartersRedistribute(void)
 
         selectedAgents[worstAgent] = 1;
 
-        /*
-         * Find cell with highest HQ score.
-         */
         double highestScore = -INFINITY;
 
         int bestCellX = 0;
@@ -418,10 +414,6 @@ static void HeadquartersRedistribute(void)
             bestCellX,
             bestCellY);
 
-        /*
-         * The next HQ decision should know that this
-         * cell has just received another agent.
-         */
         density[bestCellX][bestCellY]++;
     }
 }
@@ -451,7 +443,6 @@ static void DirectionalTreeInteractiveInit(
         agent->stepSize = (problem->upper - problem->lower)
             * 0.05;
 
-        InitializeDirections(agent);
         StartSearch(agent);
     }
 }
