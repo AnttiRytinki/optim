@@ -16,6 +16,9 @@
 #define DIRECTIONAL_TREE_INACTIVE_TYPE 7
 #define DIRECTIONAL_TREE_TESTED_TYPE 8
 
+#define HQ_EXPLORATION_WEIGHT 0.5
+#define HQ_QUALITY_WEIGHT 0.5
+
 typedef struct
 {
     double direction[MAX_DIM];
@@ -288,12 +291,20 @@ static void TeleportAgentToCell(
 static void HeadquartersRedistribute(void)
 {
     int density[HQ_GRID_SIZE][HQ_GRID_SIZE] = { 0 };
+    double bestValue[HQ_GRID_SIZE][HQ_GRID_SIZE];
+
+    double globalBest = INFINITY;
+    double globalWorst = -INFINITY;
 
     double width = activeProblem->upper - activeProblem->lower;
 
+    for (int y = 0; y < HQ_GRID_SIZE; y++) {
+        for (int x = 0; x < HQ_GRID_SIZE; x++)
+            bestValue[x][y] = INFINITY;
+    }
+
     /*
-     * Build HQ's density map from every point
-     * evaluated so far.
+     * Build density and quality maps.
      */
     for (int i = 0; i < testedPointCount; i++) {
         int cellX = (int)((testedPoints[i].position[0]
@@ -319,24 +330,32 @@ static void HeadquartersRedistribute(void)
             cellY = HQ_GRID_SIZE - 1;
 
         density[cellX][cellY]++;
+
+        if (testedPoints[i].value < bestValue[cellX][cellY])
+            bestValue[cellX][cellY] = testedPoints[i].value;
+
+        if (testedPoints[i].value < globalBest)
+            globalBest = testedPoints[i].value;
+
+        if (testedPoints[i].value > globalWorst)
+            globalWorst = testedPoints[i].value;
     }
 
     int selectedAgents[AGENT_COUNT] = { 0 };
 
-    /*
-     * Select the N worst agents and move each one
-     * into a low-density part of the map.
-     */
     for (int t = 0; t < HQ_TELEPORT_COUNT; t++) {
+        /*
+         * Find worst currently active agent.
+         */
         int worstAgent = -1;
-        double worstValue = -INFINITY;
+        double worstAgentValue = -INFINITY;
 
         for (int a = 0; a < AGENT_COUNT; a++) {
             if (selectedAgents[a])
                 continue;
 
-            if (agents[a].currentValue > worstValue) {
-                worstValue = agents[a].currentValue;
+            if (agents[a].currentValue > worstAgentValue) {
+                worstAgentValue = agents[a].currentValue;
                 worstAgent = a;
             }
         }
@@ -346,31 +365,47 @@ static void HeadquartersRedistribute(void)
 
         selectedAgents[worstAgent] = 1;
 
+        /*
+         * Find cell with highest HQ score.
+         */
+        double highestScore = -INFINITY;
+
         int bestCellX = 0;
         int bestCellY = 0;
-        int lowestDensity = density[0][0];
 
-        /*
-         * Find a cell with minimum tested-point density.
-         *
-         * If several cells have the same density,
-         * choose randomly among them. Otherwise the
-         * search would systematically favor cells
-         * near the top-left of the array.
-         */
-        int candidateCells = 0;
+        int equalBestCount = 0;
 
         for (int y = 0; y < HQ_GRID_SIZE; y++) {
             for (int x = 0; x < HQ_GRID_SIZE; x++) {
-                if (density[x][y] < lowestDensity) {
-                    lowestDensity = density[x][y];
+                double exploration = 1.0 / (1.0 + density[x][y]);
+
+                double quality = 0.0;
+
+                if (density[x][y] > 0) {
+                    double range = globalWorst - globalBest;
+
+                    if (range > 0.0) {
+                        quality = 1.0
+                            - (bestValue[x][y] - globalBest)
+                                / range;
+                    } else
+                        quality = 1.0;
+                }
+
+                double score = HQ_EXPLORATION_WEIGHT * exploration
+                    + HQ_QUALITY_WEIGHT * quality;
+
+                if (score > highestScore) {
+                    highestScore = score;
+
                     bestCellX = x;
                     bestCellY = y;
-                    candidateCells = 1;
-                } else if (density[x][y] == lowestDensity) {
-                    candidateCells++;
 
-                    if (rand() % candidateCells == 0) {
+                    equalBestCount = 1;
+                } else if (fabs(score - highestScore) < 1e-12) {
+                    equalBestCount++;
+
+                    if (rand() % equalBestCount == 0) {
                         bestCellX = x;
                         bestCellY = y;
                     }
@@ -384,9 +419,8 @@ static void HeadquartersRedistribute(void)
             bestCellY);
 
         /*
-         * Mark this cell as occupied immediately so
-         * several agents are less likely to be sent
-         * to the same low-density cell.
+         * The next HQ decision should know that this
+         * cell has just received another agent.
          */
         density[bestCellX][bestCellY]++;
     }
