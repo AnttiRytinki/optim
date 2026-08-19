@@ -92,7 +92,7 @@ static void DrawSeekers(
         else if (type == DIRECTIONAL_TREE_INACTIVE)
             SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
         else if (type == DIRECTIONAL_TREE_TESTED)
-            SDL_SetRenderDrawColor(renderer, 80, 80, 80, 255);
+            SDL_SetRenderDrawColor(renderer, 255, 80, 255, 255);
         else
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 
