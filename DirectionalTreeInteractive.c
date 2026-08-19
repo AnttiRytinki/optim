@@ -7,6 +7,10 @@
 #define DIRECTION_COUNT 8
 #define MAX_TESTED_POINTS 100000
 
+#define HQ_GRID_SIZE 20
+#define HQ_INTERVAL 20
+#define HQ_TELEPORT_COUNT 2
+
 #define DIRECTIONAL_TREE_AGENT_TYPE 5
 #define DIRECTIONAL_TREE_ACTIVE_TYPE 6
 #define DIRECTIONAL_TREE_INACTIVE_TYPE 7
@@ -42,6 +46,8 @@ static Agent agents[AGENT_COUNT];
 
 static TestedPoint testedPoints[MAX_TESTED_POINTS];
 static int testedPointCount;
+
+static int hqStepCounter;
 
 static void CopyVector(double* dst, const double* src, int dim)
 {
@@ -100,7 +106,9 @@ static double Evaluate(const double* position)
 static void InitializeDirections(Agent* agent)
 {
     for (int i = 0; i < DIRECTION_COUNT; i++) {
-        double angle = 2.0 * M_PI * (double)i / (double)DIRECTION_COUNT;
+        double angle = 2.0 * M_PI
+            * (double)i
+            / (double)DIRECTION_COUNT;
 
         for (int d = 0; d < activeProblem->dim; d++)
             agent->candidates[i].direction[d] = 0.0;
@@ -246,6 +254,144 @@ static void StepAgent(Agent* agent)
     agent->searchDepth++;
 }
 
+static void TeleportAgentToCell(
+    Agent* agent,
+    int cellX,
+    int cellY)
+{
+    double width = activeProblem->upper - activeProblem->lower;
+
+    double cellSize = width / HQ_GRID_SIZE;
+
+    agent->position[0] = activeProblem->lower
+        + (cellX + RandomDouble(0.0, 1.0))
+            * cellSize;
+
+    agent->position[1] = activeProblem->lower
+        + (cellY + RandomDouble(0.0, 1.0))
+            * cellSize;
+
+    for (int d = 2; d < activeProblem->dim; d++) {
+        agent->position[d] = RandomDouble(
+            activeProblem->lower,
+            activeProblem->upper);
+    }
+
+    agent->currentValue = Evaluate(agent->position);
+
+    agent->stepSize = (activeProblem->upper - activeProblem->lower)
+        * 0.05;
+
+    StartSearch(agent);
+}
+
+static void HeadquartersRedistribute(void)
+{
+    int density[HQ_GRID_SIZE][HQ_GRID_SIZE] = { 0 };
+
+    double width = activeProblem->upper - activeProblem->lower;
+
+    /*
+     * Build HQ's density map from every point
+     * evaluated so far.
+     */
+    for (int i = 0; i < testedPointCount; i++) {
+        int cellX = (int)((testedPoints[i].position[0]
+                              - activeProblem->lower)
+            / width
+            * HQ_GRID_SIZE);
+
+        int cellY = (int)((testedPoints[i].position[1]
+                              - activeProblem->lower)
+            / width
+            * HQ_GRID_SIZE);
+
+        if (cellX < 0)
+            cellX = 0;
+
+        if (cellX >= HQ_GRID_SIZE)
+            cellX = HQ_GRID_SIZE - 1;
+
+        if (cellY < 0)
+            cellY = 0;
+
+        if (cellY >= HQ_GRID_SIZE)
+            cellY = HQ_GRID_SIZE - 1;
+
+        density[cellX][cellY]++;
+    }
+
+    int selectedAgents[AGENT_COUNT] = { 0 };
+
+    /*
+     * Select the N worst agents and move each one
+     * into a low-density part of the map.
+     */
+    for (int t = 0; t < HQ_TELEPORT_COUNT; t++) {
+        int worstAgent = -1;
+        double worstValue = -INFINITY;
+
+        for (int a = 0; a < AGENT_COUNT; a++) {
+            if (selectedAgents[a])
+                continue;
+
+            if (agents[a].currentValue > worstValue) {
+                worstValue = agents[a].currentValue;
+                worstAgent = a;
+            }
+        }
+
+        if (worstAgent < 0)
+            break;
+
+        selectedAgents[worstAgent] = 1;
+
+        int bestCellX = 0;
+        int bestCellY = 0;
+        int lowestDensity = density[0][0];
+
+        /*
+         * Find a cell with minimum tested-point density.
+         *
+         * If several cells have the same density,
+         * choose randomly among them. Otherwise the
+         * search would systematically favor cells
+         * near the top-left of the array.
+         */
+        int candidateCells = 0;
+
+        for (int y = 0; y < HQ_GRID_SIZE; y++) {
+            for (int x = 0; x < HQ_GRID_SIZE; x++) {
+                if (density[x][y] < lowestDensity) {
+                    lowestDensity = density[x][y];
+                    bestCellX = x;
+                    bestCellY = y;
+                    candidateCells = 1;
+                } else if (density[x][y] == lowestDensity) {
+                    candidateCells++;
+
+                    if (rand() % candidateCells == 0) {
+                        bestCellX = x;
+                        bestCellY = y;
+                    }
+                }
+            }
+        }
+
+        TeleportAgentToCell(
+            &agents[worstAgent],
+            bestCellX,
+            bestCellY);
+
+        /*
+         * Mark this cell as occupied immediately so
+         * several agents are less likely to be sent
+         * to the same low-density cell.
+         */
+        density[bestCellX][bestCellY]++;
+    }
+}
+
 static void DirectionalTreeInteractiveInit(
     const TestProblem* problem)
 {
@@ -255,6 +401,7 @@ static void DirectionalTreeInteractiveInit(
     result.bestValue = INFINITY;
 
     testedPointCount = 0;
+    hqStepCounter = 0;
 
     for (int a = 0; a < AGENT_COUNT; a++) {
         Agent* agent = &agents[a];
@@ -282,6 +429,13 @@ static void DirectionalTreeInteractiveStep(void)
 
     for (int a = 0; a < AGENT_COUNT; a++)
         StepAgent(&agents[a]);
+
+    hqStepCounter++;
+
+    if (hqStepCounter >= HQ_INTERVAL) {
+        HeadquartersRedistribute();
+        hqStepCounter = 0;
+    }
 }
 
 static int DirectionalTreeInteractiveGetPointCount(void)
