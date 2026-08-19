@@ -17,6 +17,7 @@
 #define DIRECTIONAL_TREE_AGENT 5
 #define DIRECTIONAL_TREE_ACTIVE 6
 #define DIRECTIONAL_TREE_INACTIVE 7
+#define DIRECTIONAL_TREE_TESTED 8
 
 static int ToScreenX(double x, const TestProblem* problem)
 {
@@ -90,10 +91,21 @@ static void DrawSeekers(
             SDL_SetRenderDrawColor(renderer, 80, 160, 255, 255);
         else if (type == DIRECTIONAL_TREE_INACTIVE)
             SDL_SetRenderDrawColor(renderer, 100, 100, 100, 255);
+        else if (type == DIRECTIONAL_TREE_TESTED)
+            SDL_SetRenderDrawColor(renderer, 80, 80, 80, 255);
         else
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 
-        DrawCircle(renderer, ToScreenX(x, problem), ToScreenY(y, problem), 4);
+        int radius = 4;
+
+        if (type == DIRECTIONAL_TREE_TESTED)
+            radius = 1;
+
+        DrawCircle(
+            renderer,
+            ToScreenX(x, problem),
+            ToScreenY(y, problem),
+            radius);
     }
 }
 

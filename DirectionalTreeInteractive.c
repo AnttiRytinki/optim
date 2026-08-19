@@ -3,21 +3,14 @@
 
 #include "optimizers.h"
 
+#define AGENT_COUNT 8
 #define DIRECTION_COUNT 8
+#define MAX_TESTED_POINTS 100000
 
 #define DIRECTIONAL_TREE_AGENT_TYPE 5
 #define DIRECTIONAL_TREE_ACTIVE_TYPE 6
 #define DIRECTIONAL_TREE_INACTIVE_TYPE 7
-
-static const TestProblem *activeProblem;
-static AlgorithmResult result;
-
-static double currentX[MAX_DIM];
-static double currentValue;
-static double stepSize;
-
-static int searchDepth;
-static int searchActive;
+#define DIRECTIONAL_TREE_TESTED_TYPE 8
 
 typedef struct
 {
@@ -25,21 +18,40 @@ typedef struct
     double position[MAX_DIM];
     double value;
     int active;
-    int evaluated;
 } DirectionCandidate;
 
-static DirectionCandidate candidates[DIRECTION_COUNT];
+typedef struct
+{
+    double position[MAX_DIM];
+    double currentValue;
+    double stepSize;
+    int searchDepth;
+    DirectionCandidate candidates[DIRECTION_COUNT];
+} Agent;
 
-static void CopyVector(double *dst, const double *src, int dim)
+typedef struct
+{
+    double position[MAX_DIM];
+    double value;
+} TestedPoint;
+
+static const TestProblem* activeProblem;
+static AlgorithmResult result;
+
+static Agent agents[AGENT_COUNT];
+
+static TestedPoint testedPoints[MAX_TESTED_POINTS];
+static int testedPointCount;
+
+static void CopyVector(double* dst, const double* src, int dim)
 {
     for (int i = 0; i < dim; i++)
         dst[i] = src[i];
 }
 
-static void Clamp(double *x, const TestProblem *problem)
+static void Clamp(double* x, const TestProblem* problem)
 {
-    for (int i = 0; i < problem->dim; i++)
-    {
+    for (int i = 0; i < problem->dim; i++) {
         if (x[i] < problem->lower)
             x[i] = problem->lower;
 
@@ -48,195 +60,219 @@ static void Clamp(double *x, const TestProblem *problem)
     }
 }
 
-static void InitializeDirections(void)
+static void RegisterTestedPoint(const double* position, double value)
 {
-    if (activeProblem->dim < 2)
+    if (testedPointCount >= MAX_TESTED_POINTS)
         return;
 
-    for (int i = 0; i < DIRECTION_COUNT; i++)
-    {
-        double angle =
-            2.0 * M_PI * (double)i / (double)DIRECTION_COUNT;
-
-        for (int d = 0; d < activeProblem->dim; d++)
-            candidates[i].direction[d] = 0.0;
-
-        candidates[i].direction[0] = cos(angle);
-        candidates[i].direction[1] = sin(angle);
-    }
-}
-
-static void StartSearch(void)
-{
-    searchDepth = 1;
-    searchActive = 1;
-
-    for (int i = 0; i < DIRECTION_COUNT; i++)
-    {
-        candidates[i].active = 1;
-        candidates[i].evaluated = 0;
-        candidates[i].value = INFINITY;
-
-        CopyVector(
-            candidates[i].position,
-            currentX,
-            activeProblem->dim);
-    }
-}
-
-static void DirectionalTreeInteractiveInit(
-    const TestProblem *problem)
-{
-    activeProblem = problem;
-
-    result.evaluations = 0;
-    result.bestValue = INFINITY;
-
-    for (int i = 0; i < problem->dim; i++)
-        currentX[i] = RandomDouble(problem->lower, problem->upper);
-
-    currentValue =
-        problem->function(currentX, problem->dim);
-
-    result.evaluations++;
-
     CopyVector(
-        result.bestX,
-        currentX,
-        problem->dim);
+        testedPoints[testedPointCount].position,
+        position,
+        activeProblem->dim);
 
-    result.bestValue = currentValue;
+    testedPoints[testedPointCount].value = value;
 
-    stepSize =
-        (problem->upper - problem->lower) * 0.05;
-
-    InitializeDirections();
-    StartSearch();
+    testedPointCount++;
 }
 
-static void EvaluateCandidate(
-    DirectionCandidate *candidate,
-    int depth)
+static double Evaluate(const double* position)
 {
-    for (int d = 0; d < activeProblem->dim; d++)
-    {
-        candidate->position[d] =
-            currentX[d]
-            + candidate->direction[d]
-            * stepSize
-            * depth;
-    }
-
-    Clamp(candidate->position, activeProblem);
-
-    candidate->value =
-        activeProblem->function(
-            candidate->position,
-            activeProblem->dim);
-
-    candidate->evaluated = 1;
+    double value = activeProblem->function(
+        position,
+        activeProblem->dim);
 
     result.evaluations++;
 
-    if (candidate->value < result.bestValue)
-    {
-        result.bestValue = candidate->value;
+    RegisterTestedPoint(position, value);
+
+    if (value < result.bestValue) {
+        result.bestValue = value;
 
         CopyVector(
             result.bestX,
-            candidate->position,
+            position,
+            activeProblem->dim);
+    }
+
+    return value;
+}
+
+static void InitializeDirections(Agent* agent)
+{
+    for (int i = 0; i < DIRECTION_COUNT; i++) {
+        double angle = 2.0 * M_PI * (double)i / (double)DIRECTION_COUNT;
+
+        for (int d = 0; d < activeProblem->dim; d++)
+            agent->candidates[i].direction[d] = 0.0;
+
+        agent->candidates[i].direction[0] = cos(angle);
+        agent->candidates[i].direction[1] = sin(angle);
+    }
+}
+
+static void StartSearch(Agent* agent)
+{
+    agent->searchDepth = 1;
+
+    for (int i = 0; i < DIRECTION_COUNT; i++) {
+        agent->candidates[i].active = 1;
+        agent->candidates[i].value = INFINITY;
+
+        CopyVector(
+            agent->candidates[i].position,
+            agent->position,
             activeProblem->dim);
     }
 }
 
-static int CountActive(void)
+static int CountActive(const Agent* agent)
 {
     int count = 0;
 
-    for (int i = 0; i < DIRECTION_COUNT; i++)
-    {
-        if (candidates[i].active)
+    for (int i = 0; i < DIRECTION_COUNT; i++) {
+        if (agent->candidates[i].active)
             count++;
     }
 
     return count;
 }
 
-static void RemoveWorstHalf(void)
+static void EvaluateCandidate(
+    Agent* agent,
+    DirectionCandidate* candidate)
 {
-    int activeCount = CountActive();
+    for (int d = 0; d < activeProblem->dim; d++) {
+        candidate->position[d] = agent->position[d]
+            + candidate->direction[d]
+                * agent->stepSize
+                * agent->searchDepth;
+    }
+
+    Clamp(candidate->position, activeProblem);
+
+    candidate->value = Evaluate(candidate->position);
+}
+
+static void RemoveWorstHalf(Agent* agent)
+{
+    int activeCount = CountActive(agent);
 
     if (activeCount <= 1)
         return;
 
     int removeCount = activeCount / 2;
 
-    for (int r = 0; r < removeCount; r++)
-    {
+    for (int r = 0; r < removeCount; r++) {
         int worstIndex = -1;
         double worstValue = -INFINITY;
 
-        for (int i = 0; i < DIRECTION_COUNT; i++)
-        {
-            if (!candidates[i].active)
+        for (int i = 0; i < DIRECTION_COUNT; i++) {
+            if (!agent->candidates[i].active)
                 continue;
 
-            if (candidates[i].value > worstValue)
-            {
-                worstValue = candidates[i].value;
+            if (agent->candidates[i].value > worstValue) {
+                worstValue = agent->candidates[i].value;
                 worstIndex = i;
             }
         }
 
         if (worstIndex >= 0)
-            candidates[worstIndex].active = 0;
+            agent->candidates[worstIndex].active = 0;
     }
 }
 
-static int GetRemainingCandidate(void)
+static int GetRemainingCandidate(const Agent* agent)
 {
-    for (int i = 0; i < DIRECTION_COUNT; i++)
-    {
-        if (candidates[i].active)
+    for (int i = 0; i < DIRECTION_COUNT; i++) {
+        if (agent->candidates[i].active)
             return i;
     }
 
     return -1;
 }
 
-static void FinishSearch(void)
+static void FinishSearch(Agent* agent)
 {
-    int winner = GetRemainingCandidate();
+    int winner = GetRemainingCandidate(agent);
 
-    if (winner < 0)
-    {
-        StartSearch();
+    if (winner < 0) {
+        StartSearch(agent);
         return;
     }
 
-    if (candidates[winner].value < currentValue)
-    {
+    DirectionCandidate* candidate = &agent->candidates[winner];
+
+    if (candidate->value < agent->currentValue) {
         CopyVector(
-            currentX,
-            candidates[winner].position,
+            agent->position,
+            candidate->position,
             activeProblem->dim);
 
-        currentValue =
-            candidates[winner].value;
-    }
-    else
-        stepSize *= 0.5;
+        agent->currentValue = candidate->value;
+    } else
+        agent->stepSize *= 0.5;
 
-    double minimumStep =
-        (activeProblem->upper - activeProblem->lower)
+    double minimumStep = (activeProblem->upper - activeProblem->lower)
         * 0.000001;
 
-    if (stepSize < minimumStep)
-        stepSize =
-            (activeProblem->upper - activeProblem->lower)
+    if (agent->stepSize < minimumStep) {
+        agent->stepSize = (activeProblem->upper - activeProblem->lower)
+            * 0.05;
+    }
+
+    StartSearch(agent);
+}
+
+static void StepAgent(Agent* agent)
+{
+    int activeCount = CountActive(agent);
+
+    if (activeCount <= 1) {
+        FinishSearch(agent);
+        return;
+    }
+
+    for (int i = 0; i < DIRECTION_COUNT; i++) {
+        if (!agent->candidates[i].active)
+            continue;
+
+        EvaluateCandidate(
+            agent,
+            &agent->candidates[i]);
+    }
+
+    RemoveWorstHalf(agent);
+
+    agent->searchDepth++;
+}
+
+static void DirectionalTreeInteractiveInit(
+    const TestProblem* problem)
+{
+    activeProblem = problem;
+
+    result.evaluations = 0;
+    result.bestValue = INFINITY;
+
+    testedPointCount = 0;
+
+    for (int a = 0; a < AGENT_COUNT; a++) {
+        Agent* agent = &agents[a];
+
+        for (int d = 0; d < problem->dim; d++) {
+            agent->position[d] = RandomDouble(
+                problem->lower,
+                problem->upper);
+        }
+
+        agent->currentValue = Evaluate(agent->position);
+
+        agent->stepSize = (problem->upper - problem->lower)
             * 0.05;
 
-    StartSearch();
+        InitializeDirections(agent);
+        StartSearch(agent);
+    }
 }
 
 static void DirectionalTreeInteractiveStep(void)
@@ -244,70 +280,61 @@ static void DirectionalTreeInteractiveStep(void)
     if (activeProblem == NULL)
         return;
 
-    if (!searchActive)
-        StartSearch();
-
-    int activeCount = CountActive();
-
-    if (activeCount <= 1)
-    {
-        FinishSearch();
-        return;
-    }
-
-    for (int i = 0; i < DIRECTION_COUNT; i++)
-    {
-        if (!candidates[i].active)
-            continue;
-
-        EvaluateCandidate(
-            &candidates[i],
-            searchDepth);
-    }
-
-    RemoveWorstHalf();
-
-    searchDepth++;
-
-    if (CountActive() <= 1)
-        searchActive = 1;
+    for (int a = 0; a < AGENT_COUNT; a++)
+        StepAgent(&agents[a]);
 }
 
 static int DirectionalTreeInteractiveGetPointCount(void)
 {
-    return DIRECTION_COUNT + 1;
+    return testedPointCount
+        + AGENT_COUNT
+        + AGENT_COUNT * DIRECTION_COUNT;
 }
 
 static void DirectionalTreeInteractiveGetPoint(
     int index,
-    double *x,
-    double *y,
-    int *type)
+    double* x,
+    double* y,
+    int* type)
 {
-    if (index == 0)
-    {
-        *x = currentX[0];
-        *y = currentX[1];
+    if (index < testedPointCount) {
+        *x = testedPoints[index].position[0];
+        *y = testedPoints[index].position[1];
+        *type = DIRECTIONAL_TREE_TESTED_TYPE;
+        return;
+    }
+
+    index -= testedPointCount;
+
+    if (index < AGENT_COUNT) {
+        *x = agents[index].position[0];
+        *y = agents[index].position[1];
         *type = DIRECTIONAL_TREE_AGENT_TYPE;
         return;
     }
 
-    int candidateIndex = index - 1;
+    index -= AGENT_COUNT;
 
-    *x = candidates[candidateIndex].position[0];
-    *y = candidates[candidateIndex].position[1];
+    int agentIndex = index / DIRECTION_COUNT;
 
-    if (candidates[candidateIndex].active)
+    int candidateIndex = index % DIRECTION_COUNT;
+
+    DirectionCandidate* candidate = &agents[agentIndex].candidates[candidateIndex];
+
+    *x = candidate->position[0];
+    *y = candidate->position[1];
+
+    if (candidate->active)
         *type = DIRECTIONAL_TREE_ACTIVE_TYPE;
     else
         *type = DIRECTIONAL_TREE_INACTIVE_TYPE;
 }
 
 static void DirectionalTreeInteractiveGetBest(
-    double *x,
-    double *y,
-    double *value,
-    int *evaluations)
+    double* x,
+    double* y,
+    double* value,
+    int* evaluations)
 {
     *x = result.bestX[0];
     *y = result.bestX[1];
@@ -315,8 +342,7 @@ static void DirectionalTreeInteractiveGetBest(
     *evaluations = result.evaluations;
 }
 
-InteractiveOptimizer DirectionalTreeOptimizer =
-{
+InteractiveOptimizer DirectionalTreeOptimizer = {
     "DirectionalTree",
     DirectionalTreeInteractiveInit,
     DirectionalTreeInteractiveStep,
