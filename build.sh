@@ -10,7 +10,7 @@ gcc -Wall -Wextra -O2 \
     RandomSearchInteractive.c \
     HillClimbInteractive.c \
     DifferentialEvolutionInteractive.c \
-    DirectionalTreeInteractive.c \
+    ScoutHQInteractive.c \
     -lm \
     -o opt_bench || exit 1
 

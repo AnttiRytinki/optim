@@ -7,7 +7,7 @@ gcc -Wall -Wextra -O2 \
     RandomSearchInteractive.c \
     HillClimbInteractive.c \
     DifferentialEvolutionInteractive.c \
-    DirectionalTreeInteractive.c \
+    ScoutHQInteractive.c \
     problems.c \
     -lSDL2 -lm \
     -o opt_view || exit 1

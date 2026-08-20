@@ -3,6 +3,6 @@
 
 #include "optimizers.h"
 
-extern InteractiveOptimizer DirectionalTreeOptimizer;
+extern InteractiveOptimizer ScoutHQOptimizer;
 
 #endif

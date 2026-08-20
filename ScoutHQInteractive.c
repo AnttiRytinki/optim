@@ -14,10 +14,10 @@
 
 #define HQ_CANDIDATE_COUNT 512
 
-#define DIRECTIONAL_TREE_AGENT_TYPE 5
-#define DIRECTIONAL_TREE_ACTIVE_TYPE 6
-#define DIRECTIONAL_TREE_INACTIVE_TYPE 7
-#define DIRECTIONAL_TREE_TESTED_TYPE 8
+#define SCOUT_HQ_AGENT_TYPE 5
+#define SCOUT_HQ_ACTIVE_TYPE 6
+#define SCOUT_HQ_INACTIVE_TYPE 7
+#define SCOUT_HQ_TESTED_TYPE 8
 
 #define PHASE_FIRST 0
 #define PHASE_OPPOSITE 1
@@ -595,7 +595,7 @@ static void StepAgent(
     }
 }
 
-static void DirectionalTreeInteractiveInit(
+static void ScoutHQInteractiveInit(
     const TestProblem* problem)
 {
     activeProblem = problem;
@@ -626,7 +626,7 @@ static void DirectionalTreeInteractiveInit(
     }
 }
 
-static void DirectionalTreeInteractiveStep(void)
+static void ScoutHQInteractiveStep(void)
 {
     if (activeProblem == NULL)
         return;
@@ -635,14 +635,14 @@ static void DirectionalTreeInteractiveStep(void)
         StepAgent(&agents[a]);
 }
 
-static int DirectionalTreeInteractiveGetPointCount(void)
+static int ScoutHQInteractiveGetPointCount(void)
 {
     return testedPointCount
         + AGENT_COUNT
         + AGENT_COUNT * DIRECTION_COUNT;
 }
 
-static void DirectionalTreeInteractiveGetPoint(
+static void ScoutHQInteractiveGetPoint(
     int index,
     double* x,
     double* y,
@@ -653,7 +653,7 @@ static void DirectionalTreeInteractiveGetPoint(
 
         *y = testedPoints[index].position[1];
 
-        *type = DIRECTIONAL_TREE_TESTED_TYPE;
+        *type = SCOUT_HQ_TESTED_TYPE;
 
         return;
     }
@@ -665,7 +665,7 @@ static void DirectionalTreeInteractiveGetPoint(
 
         *y = agents[index].position[1];
 
-        *type = DIRECTIONAL_TREE_AGENT_TYPE;
+        *type = SCOUT_HQ_AGENT_TYPE;
 
         return;
     }
@@ -683,13 +683,13 @@ static void DirectionalTreeInteractiveGetPoint(
     *y = point->position[1];
 
     if (point->tested) {
-        *type = DIRECTIONAL_TREE_INACTIVE_TYPE;
+        *type = SCOUT_HQ_INACTIVE_TYPE;
     } else {
-        *type = DIRECTIONAL_TREE_ACTIVE_TYPE;
+        *type = SCOUT_HQ_ACTIVE_TYPE;
     }
 }
 
-static void DirectionalTreeInteractiveGetBest(
+static void ScoutHQInteractiveGetBest(
     double* x,
     double* y,
     double* value,
@@ -704,11 +704,11 @@ static void DirectionalTreeInteractiveGetBest(
     *evaluations = result.evaluations;
 }
 
-InteractiveOptimizer DirectionalTreeOptimizer = {
-    "DirectionalTree",
-    DirectionalTreeInteractiveInit,
-    DirectionalTreeInteractiveStep,
-    DirectionalTreeInteractiveGetPointCount,
-    DirectionalTreeInteractiveGetPoint,
-    DirectionalTreeInteractiveGetBest
+InteractiveOptimizer ScoutHQOptimizer = {
+    "ScoutHQ",
+    ScoutHQInteractiveInit,
+    ScoutHQInteractiveStep,
+    ScoutHQInteractiveGetPointCount,
+    ScoutHQInteractiveGetPoint,
+    ScoutHQInteractiveGetBest
 };
