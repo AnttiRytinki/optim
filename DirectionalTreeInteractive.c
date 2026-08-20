@@ -7,7 +7,9 @@
 #define DIRECTION_COUNT 8
 #define MAX_TESTED_POINTS 100000
 
-#define LOCAL_STEP_FRACTION 0.0025
+#define INITIAL_STEP_FRACTION 0.02
+#define MIN_STEP_FRACTION 0.000625
+#define STUCK_EVENTS_BEFORE_REFINEMENT 16
 
 #define HQ_GRID_SIZE 20
 #define HQ_INTERVAL 20
@@ -61,6 +63,8 @@ static int testedPointCount;
 
 static int hqStepCounter;
 static double localStepSize;
+static double minimumStepSize;
+static int stuckEventCount;
 
 static const int DirectionX[DIRECTION_COUNT] = {
     0,
@@ -99,6 +103,24 @@ static void Clamp(double* x, const TestProblem* problem)
         if (x[i] > problem->upper)
             x[i] = problem->upper;
     }
+}
+
+static void ReportStuck(void)
+{
+    stuckEventCount++;
+
+    if (stuckEventCount < STUCK_EVENTS_BEFORE_REFINEMENT)
+        return;
+
+    stuckEventCount = 0;
+
+    if (localStepSize <= minimumStepSize)
+        return;
+
+    localStepSize *= 0.5;
+
+    if (localStepSize < minimumStepSize)
+        localStepSize = minimumStepSize;
 }
 
 static void RegisterTestedPoint(const double* position, double value)
@@ -361,6 +383,7 @@ static void StepAgent(Agent* agent)
          * immediately teleports it to a random
          * position.
          */
+        ReportStuck();
         TeleportAgentRandomly(agent);
     }
 }
@@ -506,7 +529,12 @@ static void DirectionalTreeInteractiveInit(
     hqStepCounter = 0;
 
     localStepSize = (problem->upper - problem->lower)
-        * LOCAL_STEP_FRACTION;
+        * INITIAL_STEP_FRACTION;
+
+    minimumStepSize = (problem->upper - problem->lower)
+        * MIN_STEP_FRACTION;
+
+    stuckEventCount = 0;
 
     for (int a = 0; a < AGENT_COUNT; a++) {
         Agent* agent = &agents[a];
