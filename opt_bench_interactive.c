@@ -102,7 +102,9 @@ int main(void)
     TestProblem* problems[] = {
         &SphereProblem,
         &RastriginProblem,
-        &RosenbrockProblem
+        &RosenbrockProblem,
+        &AckleyProblem,
+        &HimmelblauProblem
     };
 
     int problemCount = sizeof(problems) / sizeof(problems[0]);
