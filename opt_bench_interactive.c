@@ -7,8 +7,10 @@
 #include "optimizers.h"
 #include "problems.h"
 
-#define RUNS 50
+#define RUNS 200
 #define TIME_RUNS 10
+
+#define SUCCESS_THRESHOLD 1e-6
 
 static const int Checkpoints[] = {
     100,
@@ -35,6 +37,15 @@ static const double TimeCheckpointsMs[] = {
 #define TIME_CHECKPOINT_COUNT \
     ((int)(sizeof(TimeCheckpointsMs) / sizeof(TimeCheckpointsMs[0])))
 
+typedef struct
+{
+    double mean;
+    double median;
+    double best;
+    double worst;
+    double successPercent;
+} FinalStatistics;
+
 static double GetTimeMs(void)
 {
     struct timespec ts;
@@ -45,12 +56,83 @@ static double GetTimeMs(void)
         + (double)ts.tv_nsec / 1000000.0;
 }
 
+static int CompareDouble(const void* a, const void* b)
+{
+    double da = *(const double*)a;
+    double db = *(const double*)b;
+
+    if (da < db)
+        return -1;
+
+    if (da > db)
+        return 1;
+
+    return 0;
+}
+
+static void CalculateFinalStatistics(
+    double* values,
+    int count,
+    const TestProblem* problem,
+    FinalStatistics* statistics)
+{
+    double sum = 0.0;
+    double best = INFINITY;
+    double worst = -INFINITY;
+    int successCount = 0;
+
+    for (int i = 0; i < count; i++) {
+        sum += values[i];
+
+        if (values[i] < best)
+            best = values[i];
+
+        if (values[i] > worst)
+            worst = values[i];
+
+        if (
+            fabs(values[i] - problem->optimumValue)
+            < SUCCESS_THRESHOLD) {
+            successCount++;
+        }
+    }
+
+    qsort(
+        values,
+        count,
+        sizeof(double),
+        CompareDouble);
+
+    double median;
+
+    if (count % 2 == 0) {
+        median = (values[count / 2 - 1]
+                     + values[count / 2])
+            * 0.5;
+    } else
+        median = values[count / 2];
+
+    statistics->mean = sum / count;
+
+    statistics->median = median;
+
+    statistics->best = best;
+
+    statistics->worst = worst;
+
+    statistics->successPercent = 100.0
+        * successCount
+        / count;
+}
+
 static void BenchmarkConvergence(
     InteractiveOptimizer* optimizer,
     const TestProblem* problem,
-    double* averages)
+    double* averages,
+    FinalStatistics* finalStatistics)
 {
     double totals[CHECKPOINT_COUNT] = { 0.0 };
+    double finalValues[RUNS];
 
     for (int run = 0; run < RUNS; run++) {
         double bestX;
@@ -81,6 +163,10 @@ static void BenchmarkConvergence(
                 checkpointIndex < CHECKPOINT_COUNT
                 && evaluations >= Checkpoints[checkpointIndex]) {
                 totals[checkpointIndex] += value;
+
+                if (checkpointIndex == CHECKPOINT_COUNT - 1)
+                    finalValues[run] = value;
+
                 checkpointIndex++;
             }
         }
@@ -88,6 +174,12 @@ static void BenchmarkConvergence(
 
     for (int i = 0; i < CHECKPOINT_COUNT; i++)
         averages[i] = totals[i] / RUNS;
+
+    CalculateFinalStatistics(
+        finalValues,
+        RUNS,
+        problem,
+        finalStatistics);
 }
 
 static void BenchmarkTime(
@@ -173,6 +265,27 @@ static void PrintTimeHeader(void)
     printf("\n");
 }
 
+static void PrintFinalStatisticsHeader(void)
+{
+    printf(
+        "%-24s %12s %12s %12s %12s %10s\n",
+        "Algorithm",
+        "Mean",
+        "Median",
+        "Best",
+        "Worst",
+        "Success");
+
+    printf(
+        "%-24s %12s %12s %12s %12s %10s\n",
+        "------------------------",
+        "------------",
+        "------------",
+        "------------",
+        "------------",
+        "----------");
+}
+
 static void PrintEvaluationResult(
     const char* name,
     const double* averages)
@@ -195,6 +308,20 @@ static void PrintTimeResult(
         printf(" %12.6f", averages[i]);
 
     printf("\n");
+}
+
+static void PrintFinalStatistics(
+    const char* name,
+    const FinalStatistics* statistics)
+{
+    printf(
+        "%-24s %12.6f %12.6f %12.6f %12.6f %9.1f%%\n",
+        name,
+        statistics->mean,
+        statistics->median,
+        statistics->best,
+        statistics->worst,
+        statistics->successPercent);
 }
 
 int main(int argc, char* argv[])
@@ -228,17 +355,37 @@ int main(int argc, char* argv[])
 
         PrintEvaluationHeader();
 
+        FinalStatistics statistics[OptimizerCount];
+
         for (int i = 0; i < OptimizerCount; i++) {
             double averages[CHECKPOINT_COUNT];
 
             BenchmarkConvergence(
                 Optimizers[i],
                 problems[p],
-                averages);
+                averages,
+                &statistics[i]);
 
             PrintEvaluationResult(
                 Optimizers[i]->name,
                 averages);
+        }
+
+        printf("\n");
+        printf(
+            "Final statistics at %d evaluations\n",
+            Checkpoints[CHECKPOINT_COUNT - 1]);
+
+        printf(
+            "Success threshold: |value - optimum| < %.1e\n\n",
+            SUCCESS_THRESHOLD);
+
+        PrintFinalStatisticsHeader();
+
+        for (int i = 0; i < OptimizerCount; i++) {
+            PrintFinalStatistics(
+                Optimizers[i]->name,
+                &statistics[i]);
         }
 
         printf("\n");
