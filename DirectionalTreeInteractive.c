@@ -12,8 +12,7 @@
 
 #define REFINER_COUNT 2
 
-#define HQ_SEARCH_TOLERANCE_FRACTION 0.005
-#define HQ_MAX_SEARCH_NODES 2000
+#define HQ_CANDIDATE_COUNT 512
 
 #define DIRECTIONAL_TREE_AGENT_TYPE 5
 #define DIRECTIONAL_TREE_ACTIVE_TYPE 6
@@ -53,12 +52,10 @@ typedef struct
 
 typedef struct
 {
-    double cx;
-    double cy;
-    double halfSize;
+    double x;
+    double y;
     double clearance;
-    double upperBound;
-} SearchRegion;
+} HQCandidate;
 
 static const TestProblem* activeProblem;
 static AlgorithmResult result;
@@ -67,6 +64,8 @@ static Agent agents[AGENT_COUNT];
 
 static TestedPoint testedPoints[MAX_TESTED_POINTS];
 static int testedPointCount;
+
+static HQCandidate hqCandidates[HQ_CANDIDATE_COUNT];
 
 static int globalCoverageComplete;
 
@@ -109,6 +108,95 @@ static void Clamp(double* x, const TestProblem* problem)
     }
 }
 
+static double GetMaximumStep(void)
+{
+    return (activeProblem->upper
+               - activeProblem->lower)
+        * MAX_STEP_FRACTION;
+}
+
+static double GetMinimumStep(void)
+{
+    return (activeProblem->upper
+               - activeProblem->lower)
+        * MIN_STEP_FRACTION;
+}
+
+static double Halton(int index, int base)
+{
+    double result = 0.0;
+    double fraction = 1.0;
+
+    while (index > 0) {
+        fraction /= base;
+
+        result += fraction
+            * (index % base);
+
+        index /= base;
+    }
+
+    return result;
+}
+
+static void InitializeHQCandidates(void)
+{
+    double lower = activeProblem->lower;
+
+    double upper = activeProblem->upper;
+
+    double width = upper - lower;
+
+    for (int i = 0; i < HQ_CANDIDATE_COUNT; i++) {
+        double hx = Halton(i + 1, 2);
+
+        double hy = Halton(i + 1, 3);
+
+        hqCandidates[i].x = lower + hx * width;
+
+        hqCandidates[i].y = lower + hy * width;
+
+        /*
+         * Initial clearance is limited only
+         * by the boundaries of the search area.
+         */
+        hqCandidates[i].clearance = fmin(
+            fmin(
+                hqCandidates[i].x - lower,
+                upper - hqCandidates[i].x),
+            fmin(
+                hqCandidates[i].y - lower,
+                upper - hqCandidates[i].y));
+    }
+}
+
+static void UpdateHQCoverage(
+    const double* position)
+{
+    if (globalCoverageComplete)
+        return;
+
+    for (int i = 0; i < HQ_CANDIDATE_COUNT; i++) {
+        double dx = fabs(
+            hqCandidates[i].x
+            - position[0]);
+
+        double dy = fabs(
+            hqCandidates[i].y
+            - position[1]);
+
+        /*
+         * Chebyshev distance corresponds to
+         * an axis-aligned empty square.
+         */
+        double distance = fmax(dx, dy);
+
+        if (distance < hqCandidates[i].clearance) {
+            hqCandidates[i].clearance = distance;
+        }
+    }
+}
+
 static void RegisterTestedPoint(
     const double* position,
     double value)
@@ -138,6 +226,8 @@ static double Evaluate(const double* position)
         position,
         value);
 
+    UpdateHQCoverage(position);
+
     if (value < result.bestValue) {
         result.bestValue = value;
 
@@ -148,20 +238,6 @@ static double Evaluate(const double* position)
     }
 
     return value;
-}
-
-static double GetMaximumStep(void)
-{
-    return (activeProblem->upper
-               - activeProblem->lower)
-        * MAX_STEP_FRACTION;
-}
-
-static double GetMinimumStep(void)
-{
-    return (activeProblem->upper
-               - activeProblem->lower)
-        * MIN_STEP_FRACTION;
 }
 
 static void BuildLocalPoint(
@@ -262,6 +338,14 @@ static int FindBestTestedDirection(
 
 static void RotateLocalSearch(Agent* agent)
 {
+    /*
+     * Rotating the discrete cross by one
+     * direction means 45 degrees.
+     *
+     * This is not arbitrary direction rotation.
+     * It simply switches from the cardinal cross
+     * to the diagonal cross, or vice versa.
+     */
     agent->baseDirection = (agent->baseDirection + 1)
         % DIRECTION_COUNT;
 
@@ -269,164 +353,37 @@ static void RotateLocalSearch(Agent* agent)
     agent->phase = PHASE_FIRST;
 }
 
-static double GetClearance(
-    double x,
-    double y)
+static int GetLargestHoleCandidate(
+    double* x,
+    double* y,
+    double* clearance)
 {
-    double clearance = fmin(
-        fmin(
-            x - activeProblem->lower,
-            activeProblem->upper - x),
-        fmin(
-            y - activeProblem->lower,
-            activeProblem->upper - y));
+    if (globalCoverageComplete)
+        return 0;
 
-    for (int i = 0; i < testedPointCount; i++) {
-        double dx = fabs(
-            x
-            - testedPoints[i].position[0]);
+    int bestIndex = -1;
+    double bestClearance = -INFINITY;
 
-        double dy = fabs(
-            y
-            - testedPoints[i].position[1]);
-
-        double distance = fmax(dx, dy);
-
-        if (distance < clearance)
-            clearance = distance;
-    }
-
-    return clearance;
-}
-
-static void FindLargestEmptySquare(
-    double* bestX,
-    double* bestY,
-    double* bestClearance)
-{
-    SearchRegion regions[HQ_MAX_SEARCH_NODES];
-
-    int regionCount = 1;
-
-    double width = activeProblem->upper
-        - activeProblem->lower;
-
-    double center = (activeProblem->lower
-                        + activeProblem->upper)
-        * 0.5;
-
-    regions[0].cx = center;
-
-    regions[0].cy = center;
-
-    regions[0].halfSize = width * 0.5;
-
-    regions[0].clearance = GetClearance(
-        regions[0].cx,
-        regions[0].cy);
-
-    regions[0].upperBound = regions[0].clearance
-        + regions[0].halfSize;
-
-    double bestClearanceLocal = regions[0].clearance;
-
-    *bestX = regions[0].cx;
-
-    *bestY = regions[0].cy;
-
-    double tolerance = width
-        * HQ_SEARCH_TOLERANCE_FRACTION;
-
-    int processed = 0;
-
-    while (
-        regionCount > 0
-        && processed < HQ_MAX_SEARCH_NODES) {
-        int bestRegion = 0;
-
-        for (int i = 1; i < regionCount; i++) {
-            if (
-                regions[i].upperBound
-                > regions[bestRegion].upperBound) {
-                bestRegion = i;
-            }
-        }
-
-        SearchRegion region = regions[bestRegion];
-
-        regions[bestRegion] = regions[regionCount - 1];
-
-        regionCount--;
-        processed++;
-
+    for (int i = 0; i < HQ_CANDIDATE_COUNT; i++) {
         if (
-            region.upperBound
-            <= bestClearanceLocal) {
-            continue;
-        }
+            hqCandidates[i].clearance
+            > bestClearance) {
+            bestClearance = hqCandidates[i].clearance;
 
-        if (
-            region.halfSize
-            <= tolerance) {
-            continue;
-        }
-
-        double childHalf = region.halfSize * 0.5;
-
-        static const int offsets[4][2] = {
-            { -1, -1 },
-            { 1, -1 },
-            { -1, 1 },
-            { 1, 1 }
-        };
-
-        for (int c = 0; c < 4; c++) {
-            if (
-                regionCount
-                >= HQ_MAX_SEARCH_NODES) {
-                break;
-            }
-
-            SearchRegion child;
-
-            child.cx = region.cx
-                + offsets[c][0]
-                    * childHalf;
-
-            child.cy = region.cy
-                + offsets[c][1]
-                    * childHalf;
-
-            child.halfSize = childHalf;
-
-            child.clearance = GetClearance(
-                child.cx,
-                child.cy);
-
-            child.upperBound = child.clearance
-                + child.halfSize;
-
-            if (
-                child.clearance
-                > bestClearanceLocal) {
-                bestClearanceLocal = child.clearance;
-
-                *bestX = child.cx;
-
-                *bestY = child.cy;
-            }
-
-            if (
-                child.upperBound
-                > bestClearanceLocal) {
-                regions[regionCount] = child;
-
-                regionCount++;
-            }
+            bestIndex = i;
         }
     }
 
-    *bestClearance = bestClearanceLocal;
+    if (bestIndex < 0)
+        return 0;
+
+    *x = hqCandidates[bestIndex].x;
+
+    *y = hqCandidates[bestIndex].y;
+
+    *clearance = hqCandidates[bestIndex].clearance;
+
+    return 1;
 }
 
 static void TeleportAgentRandomly(
@@ -438,9 +395,9 @@ static void TeleportAgentRandomly(
             activeProblem->upper);
     }
 
-    agent->currentValue = Evaluate(agent->position);
-
     agent->stepSize = GetMaximumStep();
+
+    agent->currentValue = Evaluate(agent->position);
 
     StartLocalSearch(agent);
 }
@@ -457,19 +414,23 @@ static void TeleportAgentForExploration(
     double y;
     double clearance;
 
-    FindLargestEmptySquare(
-        &x,
-        &y,
-        &clearance);
+    if (!GetLargestHoleCandidate(
+            &x,
+            &y,
+            &clearance)) {
+        globalCoverageComplete = 1;
+
+        TeleportAgentRandomly(agent);
+        return;
+    }
 
     /*
-     * If the largest remaining empty square
-     * is no larger than the maximum local
-     * step scale, HQ considers coarse global
-     * coverage complete.
+     * Once the largest remaining hole is no
+     * larger than an agent's maximum local step,
+     * coarse global coverage is considered done.
      *
-     * From this point on we permanently stop
-     * running the expensive geometric search.
+     * HQ then permanently stops maintaining and
+     * searching the coverage candidates.
      */
     if (clearance <= GetMaximumStep()) {
         globalCoverageComplete = 1;
@@ -488,9 +449,9 @@ static void TeleportAgentForExploration(
             activeProblem->upper);
     }
 
-    agent->currentValue = Evaluate(agent->position);
-
     agent->stepSize = GetMaximumStep();
+
+    agent->currentValue = Evaluate(agent->position);
 
     StartLocalSearch(agent);
 }
@@ -625,6 +586,11 @@ static void StepAgent(
             return;
         }
 
+        /*
+         * All eight neighbours have been tested.
+         * The agent is at the lowest point of its
+         * current 3 x 3 neighbourhood.
+         */
         HandleStuckAgent(agent);
     }
 }
@@ -638,7 +604,10 @@ static void DirectionalTreeInteractiveInit(
     result.bestValue = INFINITY;
 
     testedPointCount = 0;
+
     globalCoverageComplete = 0;
+
+    InitializeHQCandidates();
 
     for (int a = 0; a < AGENT_COUNT; a++) {
         Agent* agent = &agents[a];
