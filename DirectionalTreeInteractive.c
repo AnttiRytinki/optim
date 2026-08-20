@@ -1,5 +1,4 @@
 #include <math.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #include "optimizers.h"
@@ -8,16 +7,9 @@
 #define DIRECTION_COUNT 8
 #define MAX_TESTED_POINTS 100000
 
-#define INITIAL_STEP_FRACTION 0.02
-#define MIN_STEP_FRACTION 0.000625
-#define STUCK_EVENTS_BEFORE_REFINEMENT 16
-
-#define HQ_GRID_SIZE 20
-#define HQ_INTERVAL 20
-#define HQ_TELEPORT_COUNT 2
-
-#define HQ_EXPLORATION_WEIGHT 0.5
-#define HQ_QUALITY_WEIGHT 0.5
+#define MAX_STEP_FRACTION 0.02
+#define HQ_SEARCH_TOLERANCE_FRACTION 0.002
+#define HQ_MAX_SEARCH_NODES 20000
 
 #define DIRECTIONAL_TREE_AGENT_TYPE 5
 #define DIRECTIONAL_TREE_ACTIVE_TYPE 6
@@ -40,6 +32,7 @@ typedef struct
 {
     double position[MAX_DIM];
     double currentValue;
+    double stepSize;
 
     int baseDirection;
     int rotated;
@@ -54,6 +47,15 @@ typedef struct
     double value;
 } TestedPoint;
 
+typedef struct
+{
+    double cx;
+    double cy;
+    double halfSize;
+    double clearance;
+    double upperBound;
+} SearchRegion;
+
 static const TestProblem* activeProblem;
 static AlgorithmResult result;
 
@@ -61,11 +63,6 @@ static Agent agents[AGENT_COUNT];
 
 static TestedPoint testedPoints[MAX_TESTED_POINTS];
 static int testedPointCount;
-
-static int hqStepCounter;
-static double localStepSize;
-static double minimumStepSize;
-static int stuckEventCount;
 
 static const int DirectionX[DIRECTION_COUNT] = {
     0,
@@ -104,30 +101,6 @@ static void Clamp(double* x, const TestProblem* problem)
         if (x[i] > problem->upper)
             x[i] = problem->upper;
     }
-}
-
-static void ReportStuck(void)
-{
-    stuckEventCount++;
-
-    if (stuckEventCount < STUCK_EVENTS_BEFORE_REFINEMENT)
-        return;
-
-    stuckEventCount = 0;
-
-    if (localStepSize <= minimumStepSize)
-        return;
-
-    localStepSize *= 0.5;
-
-    if (localStepSize < minimumStepSize)
-        localStepSize = minimumStepSize;
-
-    printf(
-        "HQ refinement: evaluations=%d step=%.8f fraction=%.8f\n",
-        result.evaluations,
-        localStepSize,
-        localStepSize / (activeProblem->upper - activeProblem->lower));
 }
 
 static void RegisterTestedPoint(const double* position, double value)
@@ -178,11 +151,15 @@ static void BuildLocalPoint(
         agent->position,
         activeProblem->dim);
 
-    point->position[0] += DirectionX[direction] * localStepSize;
+    point->position[0] += DirectionX[direction]
+        * agent->stepSize;
 
-    point->position[1] += DirectionY[direction] * localStepSize;
+    point->position[1] += DirectionY[direction]
+        * agent->stepSize;
 
-    Clamp(point->position, activeProblem);
+    Clamp(
+        point->position,
+        activeProblem);
 
     point->tested = 0;
     point->value = INFINITY;
@@ -216,47 +193,6 @@ static void MoveAgent(
         activeProblem->dim);
 
     agent->currentValue = point->value;
-
-    StartLocalSearch(agent);
-}
-
-static void TeleportAgentRandomly(Agent* agent)
-{
-    for (int d = 0; d < activeProblem->dim; d++) {
-        agent->position[d] = RandomDouble(
-            activeProblem->lower,
-            activeProblem->upper);
-    }
-
-    agent->currentValue = Evaluate(agent->position);
-
-    StartLocalSearch(agent);
-}
-
-static void TeleportAgentToCell(
-    Agent* agent,
-    int cellX,
-    int cellY)
-{
-    double width = activeProblem->upper - activeProblem->lower;
-
-    double cellSize = width / HQ_GRID_SIZE;
-
-    agent->position[0] = activeProblem->lower
-        + (cellX + RandomDouble(0.0, 1.0))
-            * cellSize;
-
-    agent->position[1] = activeProblem->lower
-        + (cellY + RandomDouble(0.0, 1.0))
-            * cellSize;
-
-    for (int d = 2; d < activeProblem->dim; d++) {
-        agent->position[d] = RandomDouble(
-            activeProblem->lower,
-            activeProblem->upper);
-    }
-
-    agent->currentValue = Evaluate(agent->position);
 
     StartLocalSearch(agent);
 }
@@ -309,6 +245,185 @@ static void RotateLocalSearch(Agent* agent)
     agent->phase = PHASE_FIRST;
 }
 
+static double GetClearance(double x, double y)
+{
+    double clearance = fmin(
+        fmin(
+            x - activeProblem->lower,
+            activeProblem->upper - x),
+        fmin(
+            y - activeProblem->lower,
+            activeProblem->upper - y));
+
+    for (int i = 0; i < testedPointCount; i++) {
+        double dx = fabs(
+            x
+            - testedPoints[i].position[0]);
+
+        double dy = fabs(
+            y
+            - testedPoints[i].position[1]);
+
+        double distance = fmax(dx, dy);
+
+        if (distance < clearance)
+            clearance = distance;
+    }
+
+    return clearance;
+}
+
+static void FindLargestEmptySquare(
+    double* bestX,
+    double* bestY)
+{
+    SearchRegion regions[HQ_MAX_SEARCH_NODES];
+
+    int regionCount = 1;
+
+    double width = activeProblem->upper
+        - activeProblem->lower;
+
+    regions[0].cx = (activeProblem->lower
+                        + activeProblem->upper)
+        * 0.5;
+
+    regions[0].cy = regions[0].cx;
+
+    regions[0].halfSize = width * 0.5;
+
+    regions[0].clearance = GetClearance(
+        regions[0].cx,
+        regions[0].cy);
+
+    regions[0].upperBound = regions[0].clearance
+        + regions[0].halfSize;
+
+    double bestClearance = regions[0].clearance;
+
+    *bestX = regions[0].cx;
+    *bestY = regions[0].cy;
+
+    double tolerance = width
+        * HQ_SEARCH_TOLERANCE_FRACTION;
+
+    int processed = 0;
+
+    while (
+        regionCount > 0
+        && processed < HQ_MAX_SEARCH_NODES) {
+        int bestRegion = 0;
+
+        for (int i = 1; i < regionCount; i++) {
+            if (
+                regions[i].upperBound
+                > regions[bestRegion].upperBound) {
+                bestRegion = i;
+            }
+        }
+
+        SearchRegion region = regions[bestRegion];
+
+        regions[bestRegion] = regions[regionCount - 1];
+
+        regionCount--;
+        processed++;
+
+        if (
+            region.upperBound
+            <= bestClearance) {
+            continue;
+        }
+
+        if (
+            region.halfSize
+            <= tolerance) {
+            continue;
+        }
+
+        double childHalf = region.halfSize * 0.5;
+
+        static const int offsets[4][2] = {
+            { -1, -1 },
+            { 1, -1 },
+            { -1, 1 },
+            { 1, 1 }
+        };
+
+        for (int c = 0; c < 4; c++) {
+            if (
+                regionCount
+                >= HQ_MAX_SEARCH_NODES) {
+                break;
+            }
+
+            SearchRegion child;
+
+            child.cx = region.cx
+                + offsets[c][0]
+                    * childHalf;
+
+            child.cy = region.cy
+                + offsets[c][1]
+                    * childHalf;
+
+            child.halfSize = childHalf;
+
+            child.clearance = GetClearance(
+                child.cx,
+                child.cy);
+
+            child.upperBound = child.clearance
+                + child.halfSize;
+
+            if (
+                child.clearance
+                > bestClearance) {
+                bestClearance = child.clearance;
+
+                *bestX = child.cx;
+                *bestY = child.cy;
+            }
+
+            if (
+                child.upperBound
+                > bestClearance) {
+                regions[regionCount] = child;
+
+                regionCount++;
+            }
+        }
+    }
+}
+
+static void TeleportAgentToLargestHole(
+    Agent* agent)
+{
+    double x;
+    double y;
+
+    FindLargestEmptySquare(
+        &x,
+        &y);
+
+    agent->position[0] = x;
+    agent->position[1] = y;
+
+    for (int d = 2; d < activeProblem->dim; d++) {
+        agent->position[d] = RandomDouble(
+            activeProblem->lower,
+            activeProblem->upper);
+    }
+
+    agent->currentValue = Evaluate(agent->position);
+
+    agent->stepSize = (activeProblem->upper
+                          - activeProblem->lower)
+        * MAX_STEP_FRACTION;
+
+    StartLocalSearch(agent);
+}
+
 static void StepAgent(Agent* agent)
 {
     int first = GetDirection(agent, 0);
@@ -320,30 +435,48 @@ static void StepAgent(Agent* agent)
     int perpendicular2 = GetDirection(agent, 6);
 
     if (agent->phase == PHASE_FIRST) {
-        TestDirection(agent, first);
+        TestDirection(
+            agent,
+            first);
 
-        if (agent->localPoints[first].value < agent->currentValue) {
-            MoveAgent(agent, first);
+        if (
+            agent->localPoints[first].value
+            < agent->currentValue) {
+            MoveAgent(
+                agent,
+                first);
+
             return;
         }
 
         agent->phase = PHASE_OPPOSITE;
+
         return;
     }
 
     if (agent->phase == PHASE_OPPOSITE) {
-        TestDirection(agent, opposite);
+        TestDirection(
+            agent,
+            opposite);
 
-        if (agent->localPoints[opposite].value < agent->currentValue) {
-            MoveAgent(agent, opposite);
+        if (
+            agent->localPoints[opposite].value
+            < agent->currentValue) {
+            MoveAgent(
+                agent,
+                opposite);
+
             return;
         }
 
         agent->phase = PHASE_PERPENDICULAR_1;
+
         return;
     }
 
-    if (agent->phase == PHASE_PERPENDICULAR_1) {
+    if (
+        agent->phase
+        == PHASE_PERPENDICULAR_1) {
         TestDirection(
             agent,
             perpendicular1);
@@ -353,7 +486,9 @@ static void StepAgent(Agent* agent)
         return;
     }
 
-    if (agent->phase == PHASE_PERPENDICULAR_2) {
+    if (
+        agent->phase
+        == PHASE_PERPENDICULAR_2) {
         TestDirection(
             agent,
             perpendicular2);
@@ -368,159 +503,20 @@ static void StepAgent(Agent* agent)
             return;
         }
 
-        /*
-         * The centre was better than the first
-         * four tested neighbours.
-         *
-         * Rotate the local cross by 45 degrees.
-         * This examines the remaining four cells
-         * of the 3 x 3 neighbourhood.
-         */
         if (!agent->rotated) {
             RotateLocalSearch(agent);
             return;
         }
 
         /*
-         * All eight neighbouring cells have now
-         * been tested and the current position is
-         * still the best.
+         * Centre is lower than all eight
+         * neighbouring grid positions.
          *
-         * The agent reports "stuck" and HQ
-         * immediately teleports it to a random
-         * position.
+         * The agent reports that it is stuck.
+         * HQ finds the largest unexplored hole
+         * and teleports the agent there.
          */
-        ReportStuck();
-        TeleportAgentRandomly(agent);
-    }
-}
-
-static void HeadquartersRedistribute(void)
-{
-    int density[HQ_GRID_SIZE][HQ_GRID_SIZE] = { 0 };
-    double bestValue[HQ_GRID_SIZE][HQ_GRID_SIZE];
-
-    double globalBest = INFINITY;
-    double globalWorst = -INFINITY;
-
-    double width = activeProblem->upper - activeProblem->lower;
-
-    for (int y = 0; y < HQ_GRID_SIZE; y++) {
-        for (int x = 0; x < HQ_GRID_SIZE; x++)
-            bestValue[x][y] = INFINITY;
-    }
-
-    for (int i = 0; i < testedPointCount; i++) {
-        int cellX = (int)((testedPoints[i].position[0]
-                              - activeProblem->lower)
-            / width
-            * HQ_GRID_SIZE);
-
-        int cellY = (int)((testedPoints[i].position[1]
-                              - activeProblem->lower)
-            / width
-            * HQ_GRID_SIZE);
-
-        if (cellX < 0)
-            cellX = 0;
-
-        if (cellX >= HQ_GRID_SIZE)
-            cellX = HQ_GRID_SIZE - 1;
-
-        if (cellY < 0)
-            cellY = 0;
-
-        if (cellY >= HQ_GRID_SIZE)
-            cellY = HQ_GRID_SIZE - 1;
-
-        density[cellX][cellY]++;
-
-        if (testedPoints[i].value < bestValue[cellX][cellY])
-            bestValue[cellX][cellY] = testedPoints[i].value;
-
-        if (testedPoints[i].value < globalBest)
-            globalBest = testedPoints[i].value;
-
-        if (testedPoints[i].value > globalWorst)
-            globalWorst = testedPoints[i].value;
-    }
-
-    int selectedAgents[AGENT_COUNT] = { 0 };
-
-    for (int t = 0; t < HQ_TELEPORT_COUNT; t++) {
-        int worstAgent = -1;
-        double worstAgentValue = -INFINITY;
-
-        for (int a = 0; a < AGENT_COUNT; a++) {
-            if (selectedAgents[a])
-                continue;
-
-            if (agents[a].currentValue > worstAgentValue) {
-                worstAgentValue = agents[a].currentValue;
-
-                worstAgent = a;
-            }
-        }
-
-        if (worstAgent < 0)
-            break;
-
-        selectedAgents[worstAgent] = 1;
-
-        double highestScore = -INFINITY;
-
-        int bestCellX = 0;
-        int bestCellY = 0;
-
-        int equalBestCount = 0;
-
-        for (int y = 0; y < HQ_GRID_SIZE; y++) {
-            for (int x = 0; x < HQ_GRID_SIZE; x++) {
-                double exploration = 1.0
-                    / (1.0 + density[x][y]);
-
-                double quality = 0.0;
-
-                if (density[x][y] > 0) {
-                    double range = globalWorst - globalBest;
-
-                    if (range > 0.0) {
-                        quality = 1.0
-                            - (bestValue[x][y] - globalBest)
-                                / range;
-                    } else
-                        quality = 1.0;
-                }
-
-                double score = HQ_EXPLORATION_WEIGHT * exploration
-                    + HQ_QUALITY_WEIGHT * quality;
-
-                if (score > highestScore) {
-                    highestScore = score;
-
-                    bestCellX = x;
-                    bestCellY = y;
-
-                    equalBestCount = 1;
-                } else if (
-                    fabs(score - highestScore)
-                    < 1e-12) {
-                    equalBestCount++;
-
-                    if (rand() % equalBestCount == 0) {
-                        bestCellX = x;
-                        bestCellY = y;
-                    }
-                }
-            }
-        }
-
-        TeleportAgentToCell(
-            &agents[worstAgent],
-            bestCellX,
-            bestCellY);
-
-        density[bestCellX][bestCellY]++;
+        TeleportAgentToLargestHole(agent);
     }
 }
 
@@ -533,15 +529,10 @@ static void DirectionalTreeInteractiveInit(
     result.bestValue = INFINITY;
 
     testedPointCount = 0;
-    hqStepCounter = 0;
 
-    localStepSize = (problem->upper - problem->lower)
-        * INITIAL_STEP_FRACTION;
-
-    minimumStepSize = (problem->upper - problem->lower)
-        * MIN_STEP_FRACTION;
-
-    stuckEventCount = 0;
+    double maximumStep = (problem->upper
+                             - problem->lower)
+        * MAX_STEP_FRACTION;
 
     for (int a = 0; a < AGENT_COUNT; a++) {
         Agent* agent = &agents[a];
@@ -551,6 +542,8 @@ static void DirectionalTreeInteractiveInit(
                 problem->lower,
                 problem->upper);
         }
+
+        agent->stepSize = maximumStep;
 
         agent->currentValue = Evaluate(agent->position);
 
@@ -565,13 +558,6 @@ static void DirectionalTreeInteractiveStep(void)
 
     for (int a = 0; a < AGENT_COUNT; a++)
         StepAgent(&agents[a]);
-
-    hqStepCounter++;
-
-    if (hqStepCounter >= HQ_INTERVAL) {
-        HeadquartersRedistribute();
-        hqStepCounter = 0;
-    }
 }
 
 static int DirectionalTreeInteractiveGetPointCount(void)
@@ -601,6 +587,7 @@ static void DirectionalTreeInteractiveGetPoint(
 
     if (index < AGENT_COUNT) {
         *x = agents[index].position[0];
+
         *y = agents[index].position[1];
 
         *type = DIRECTIONAL_TREE_AGENT_TYPE;
@@ -617,12 +604,14 @@ static void DirectionalTreeInteractiveGetPoint(
     LocalPoint* point = &agents[agentIndex].localPoints[direction];
 
     *x = point->position[0];
+
     *y = point->position[1];
 
-    if (point->tested)
+    if (point->tested) {
         *type = DIRECTIONAL_TREE_INACTIVE_TYPE;
-    else
+    } else {
         *type = DIRECTIONAL_TREE_ACTIVE_TYPE;
+    }
 }
 
 static void DirectionalTreeInteractiveGetBest(
@@ -632,6 +621,7 @@ static void DirectionalTreeInteractiveGetBest(
     int* evaluations)
 {
     *x = result.bestX[0];
+
     *y = result.bestX[1];
 
     *value = result.bestValue;
