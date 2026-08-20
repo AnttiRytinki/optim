@@ -8,6 +8,10 @@
 #define MAX_TESTED_POINTS 100000
 
 #define MAX_STEP_FRACTION 0.02
+#define MIN_STEP_FRACTION 0.000001
+
+#define REFINER_COUNT 2
+
 #define HQ_SEARCH_TOLERANCE_FRACTION 0.002
 #define HQ_MAX_SEARCH_NODES 20000
 
@@ -138,6 +142,20 @@ static double Evaluate(const double* position)
     }
 
     return value;
+}
+
+static double GetMaximumStep(void)
+{
+    return (activeProblem->upper
+               - activeProblem->lower)
+        * MAX_STEP_FRACTION;
+}
+
+static double GetMinimumStep(void)
+{
+    return (activeProblem->upper
+               - activeProblem->lower)
+        * MIN_STEP_FRACTION;
 }
 
 static void BuildLocalPoint(
@@ -417,11 +435,51 @@ static void TeleportAgentToLargestHole(
 
     agent->currentValue = Evaluate(agent->position);
 
-    agent->stepSize = (activeProblem->upper
-                          - activeProblem->lower)
-        * MAX_STEP_FRACTION;
+    agent->stepSize = GetMaximumStep();
 
     StartLocalSearch(agent);
+}
+
+static int ShouldRefine(const Agent* agent)
+{
+    int betterAgents = 0;
+
+    for (int i = 0; i < AGENT_COUNT; i++) {
+        if (&agents[i] == agent)
+            continue;
+
+        if (
+            agents[i].currentValue
+            < agent->currentValue) {
+            betterAgents++;
+        }
+    }
+
+    return betterAgents < REFINER_COUNT;
+}
+
+static void RefineAgent(Agent* agent)
+{
+    agent->stepSize *= 0.5;
+
+    double minimumStep = GetMinimumStep();
+
+    if (agent->stepSize < minimumStep)
+        agent->stepSize = minimumStep;
+
+    StartLocalSearch(agent);
+}
+
+static void HandleStuckAgent(Agent* agent)
+{
+    if (
+        ShouldRefine(agent)
+        && agent->stepSize > GetMinimumStep()) {
+        RefineAgent(agent);
+        return;
+    }
+
+    TeleportAgentToLargestHole(agent);
 }
 
 static void StepAgent(Agent* agent)
@@ -508,15 +566,7 @@ static void StepAgent(Agent* agent)
             return;
         }
 
-        /*
-         * Centre is lower than all eight
-         * neighbouring grid positions.
-         *
-         * The agent reports that it is stuck.
-         * HQ finds the largest unexplored hole
-         * and teleports the agent there.
-         */
-        TeleportAgentToLargestHole(agent);
+        HandleStuckAgent(agent);
     }
 }
 
@@ -530,10 +580,6 @@ static void DirectionalTreeInteractiveInit(
 
     testedPointCount = 0;
 
-    double maximumStep = (problem->upper
-                             - problem->lower)
-        * MAX_STEP_FRACTION;
-
     for (int a = 0; a < AGENT_COUNT; a++) {
         Agent* agent = &agents[a];
 
@@ -543,7 +589,7 @@ static void DirectionalTreeInteractiveInit(
                 problem->upper);
         }
 
-        agent->stepSize = maximumStep;
+        agent->stepSize = GetMaximumStep();
 
         agent->currentValue = Evaluate(agent->position);
 
