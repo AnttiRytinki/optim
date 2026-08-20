@@ -104,7 +104,8 @@ int main(void)
         &RastriginProblem,
         &RosenbrockProblem,
         &AckleyProblem,
-        &HimmelblauProblem
+        &HimmelblauProblem,
+        &GriewankProblem
     };
 
     int problemCount = sizeof(problems) / sizeof(problems[0]);

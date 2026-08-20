@@ -69,6 +69,22 @@ double Himmelblau(const double* x, int dim)
     return a * a + b * b;
 }
 
+double Griewank(const double *x, int dim)
+{
+    double sum = 0.0;
+    double product = 1.0;
+
+    for (int i = 0; i < dim; i++)
+    {
+        sum += x[i] * x[i] / 4000.0;
+
+        product *= cos(
+            x[i] / sqrt((double)(i + 1)));
+    }
+
+    return 1.0 + sum - product;
+}
+
 TestProblem SphereProblem = {
     .name = "Sphere",
     .dim = 2,
@@ -118,3 +134,15 @@ TestProblem HimmelblauProblem = {
     .optimumValue = 0.0,
     .function = Himmelblau
 };
+
+TestProblem GriewankProblem =
+{
+    .name = "Griewank",
+    .dim = 2,
+    .lower = -600.0,
+    .upper = 600.0,
+    .optimum = { 0.0, 0.0 },
+    .optimumValue = 0.0,
+    .function = Griewank
+};
+
