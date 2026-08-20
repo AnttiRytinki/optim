@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "optimizers.h"
@@ -121,6 +122,11 @@ static void ReportStuck(void)
 
     if (localStepSize < minimumStepSize)
         localStepSize = minimumStepSize;
+
+    printf(
+        "HQ refinement: evaluations=%d step=%.8f\n",
+        result.evaluations,
+        localStepSize);
 }
 
 static void RegisterTestedPoint(const double* position, double value)
