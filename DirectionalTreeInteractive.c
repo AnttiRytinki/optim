@@ -124,9 +124,10 @@ static void ReportStuck(void)
         localStepSize = minimumStepSize;
 
     printf(
-        "HQ refinement: evaluations=%d step=%.8f\n",
+        "HQ refinement: evaluations=%d step=%.8f fraction=%.8f\n",
         result.evaluations,
-        localStepSize);
+        localStepSize,
+        localStepSize / (activeProblem->upper - activeProblem->lower));
 }
 
 static void RegisterTestedPoint(const double* position, double value)
