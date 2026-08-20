@@ -7,6 +7,7 @@
 #include "problems.h"
 
 #define RUNS 50
+#define TIME_RUNS 10
 
 static const int Checkpoints[] = {
     100,
@@ -18,8 +19,30 @@ static const int Checkpoints[] = {
     100000
 };
 
+static const double TimeCheckpointsMs[] = {
+    1.0,
+    3.0,
+    10.0,
+    30.0,
+    100.0,
+    300.0
+};
+
 #define CHECKPOINT_COUNT \
     ((int)(sizeof(Checkpoints) / sizeof(Checkpoints[0])))
+
+#define TIME_CHECKPOINT_COUNT \
+    ((int)(sizeof(TimeCheckpointsMs) / sizeof(TimeCheckpointsMs[0])))
+
+static double GetTimeMs(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    return (double)ts.tv_sec * 1000.0
+        + (double)ts.tv_nsec / 1000000.0;
+}
 
 static void BenchmarkConvergence(
     InteractiveOptimizer* optimizer,
@@ -66,7 +89,56 @@ static void BenchmarkConvergence(
         averages[i] = totals[i] / RUNS;
 }
 
-static void PrintHeader(void)
+static void BenchmarkTime(
+    InteractiveOptimizer* optimizer,
+    const TestProblem* problem,
+    double* averages)
+{
+    double totals[TIME_CHECKPOINT_COUNT] = { 0.0 };
+
+    for (int run = 0; run < TIME_RUNS; run++) {
+        double bestX;
+        double bestY;
+        double value;
+        int evaluations;
+
+        optimizer->Init(problem);
+
+        optimizer->GetBest(
+            &bestX,
+            &bestY,
+            &value,
+            &evaluations);
+
+        double startTime = GetTimeMs();
+
+        int checkpointIndex = 0;
+
+        while (checkpointIndex < TIME_CHECKPOINT_COUNT) {
+            optimizer->Step();
+
+            optimizer->GetBest(
+                &bestX,
+                &bestY,
+                &value,
+                &evaluations);
+
+            double elapsedMs = GetTimeMs() - startTime;
+
+            while (
+                checkpointIndex < TIME_CHECKPOINT_COUNT
+                && elapsedMs >= TimeCheckpointsMs[checkpointIndex]) {
+                totals[checkpointIndex] += value;
+                checkpointIndex++;
+            }
+        }
+    }
+
+    for (int i = 0; i < TIME_CHECKPOINT_COUNT; i++)
+        averages[i] = totals[i] / TIME_RUNS;
+}
+
+static void PrintEvaluationHeader(void)
 {
     printf("%-24s", "Algorithm");
 
@@ -83,13 +155,42 @@ static void PrintHeader(void)
     printf("\n");
 }
 
-static void PrintResult(
+static void PrintTimeHeader(void)
+{
+    printf("%-24s", "Algorithm");
+
+    for (int i = 0; i < TIME_CHECKPOINT_COUNT; i++)
+        printf(" %12.0f", TimeCheckpointsMs[i]);
+
+    printf("\n");
+
+    printf("%-24s", "------------------------");
+
+    for (int i = 0; i < TIME_CHECKPOINT_COUNT; i++)
+        printf(" %12s", "------------");
+
+    printf("\n");
+}
+
+static void PrintEvaluationResult(
     const char* name,
     const double* averages)
 {
     printf("%-24s", name);
 
     for (int i = 0; i < CHECKPOINT_COUNT; i++)
+        printf(" %12.6f", averages[i]);
+
+    printf("\n");
+}
+
+static void PrintTimeResult(
+    const char* name,
+    const double* averages)
+{
+    printf("%-24s", name);
+
+    for (int i = 0; i < TIME_CHECKPOINT_COUNT; i++)
         printf(" %12.6f", averages[i]);
 
     printf("\n");
@@ -110,13 +211,14 @@ int main(void)
 
     int problemCount = sizeof(problems) / sizeof(problems[0]);
 
+    printf("Evaluation benchmark\n");
     printf("Runs per algorithm: %d\n", RUNS);
     printf("Metric: average best value reached\n\n");
 
     for (int p = 0; p < problemCount; p++) {
         printf("%s\n\n", problems[p]->name);
 
-        PrintHeader();
+        PrintEvaluationHeader();
 
         for (int i = 0; i < OptimizerCount; i++) {
             double averages[CHECKPOINT_COUNT];
@@ -126,7 +228,34 @@ int main(void)
                 problems[p],
                 averages);
 
-            PrintResult(
+            PrintEvaluationResult(
+                Optimizers[i]->name,
+                averages);
+        }
+
+        printf("\n");
+    }
+
+    printf("\n");
+    printf("Time benchmark\n");
+    printf("Runs per algorithm: %d\n", TIME_RUNS);
+    printf("Metric: average best value reached\n");
+    printf("Time checkpoints in milliseconds\n\n");
+
+    for (int p = 0; p < problemCount; p++) {
+        printf("%s\n\n", problems[p]->name);
+
+        PrintTimeHeader();
+
+        for (int i = 0; i < OptimizerCount; i++) {
+            double averages[TIME_CHECKPOINT_COUNT];
+
+            BenchmarkTime(
+                Optimizers[i],
+                problems[p],
+                averages);
+
+            PrintTimeResult(
                 Optimizers[i]->name,
                 averages);
         }
