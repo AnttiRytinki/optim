@@ -7,6 +7,8 @@
 #define DIRECTION_COUNT 8
 #define MAX_TESTED_POINTS 100000
 
+#define LOCAL_STEP_FRACTION 0.01
+
 #define HQ_GRID_SIZE 20
 #define HQ_INTERVAL 20
 #define HQ_TELEPORT_COUNT 2
@@ -19,22 +21,28 @@
 #define DIRECTIONAL_TREE_INACTIVE_TYPE 7
 #define DIRECTIONAL_TREE_TESTED_TYPE 8
 
+#define PHASE_FIRST 0
+#define PHASE_OPPOSITE 1
+#define PHASE_PERPENDICULAR_1 2
+#define PHASE_PERPENDICULAR_2 3
+
 typedef struct
 {
-    double direction[MAX_DIM];
     double position[MAX_DIM];
     double value;
-    int active;
-} DirectionCandidate;
+    int tested;
+} LocalPoint;
 
 typedef struct
 {
     double position[MAX_DIM];
     double currentValue;
-    double stepSize;
-    double rotation;
-    int searchDepth;
-    DirectionCandidate candidates[DIRECTION_COUNT];
+
+    int baseDirection;
+    int rotated;
+    int phase;
+
+    LocalPoint localPoints[DIRECTION_COUNT];
 } Agent;
 
 typedef struct
@@ -52,6 +60,29 @@ static TestedPoint testedPoints[MAX_TESTED_POINTS];
 static int testedPointCount;
 
 static int hqStepCounter;
+static double localStepSize;
+
+static const int DirectionX[DIRECTION_COUNT] = {
+    0,
+    1,
+    1,
+    1,
+    0,
+    -1,
+    -1,
+    -1
+};
+
+static const int DirectionY[DIRECTION_COUNT] = {
+    -1,
+    -1,
+    0,
+    1,
+    1,
+    1,
+    0,
+    -1
+};
 
 static void CopyVector(double* dst, const double* src, int dim)
 {
@@ -107,158 +138,70 @@ static double Evaluate(const double* position)
     return value;
 }
 
-static void InitializeDirections(Agent* agent)
-{
-    for (int i = 0; i < DIRECTION_COUNT; i++) {
-        double angle = agent->rotation
-            + 2.0 * M_PI
-                * (double)i
-                / (double)DIRECTION_COUNT;
-
-        for (int d = 0; d < activeProblem->dim; d++)
-            agent->candidates[i].direction[d] = 0.0;
-
-        agent->candidates[i].direction[0] = cos(angle);
-        agent->candidates[i].direction[1] = sin(angle);
-    }
-}
-
-static void StartSearch(Agent* agent)
-{
-    agent->searchDepth = 1;
-
-    InitializeDirections(agent);
-
-    for (int i = 0; i < DIRECTION_COUNT; i++) {
-        agent->candidates[i].active = 1;
-        agent->candidates[i].value = INFINITY;
-
-        CopyVector(
-            agent->candidates[i].position,
-            agent->position,
-            activeProblem->dim);
-    }
-}
-
-static int CountActive(const Agent* agent)
-{
-    int count = 0;
-
-    for (int i = 0; i < DIRECTION_COUNT; i++) {
-        if (agent->candidates[i].active)
-            count++;
-    }
-
-    return count;
-}
-
-static void EvaluateCandidate(
+static void BuildLocalPoint(
     Agent* agent,
-    DirectionCandidate* candidate)
+    int direction)
+{
+    LocalPoint* point = &agent->localPoints[direction];
+
+    CopyVector(
+        point->position,
+        agent->position,
+        activeProblem->dim);
+
+    point->position[0] += DirectionX[direction] * localStepSize;
+
+    point->position[1] += DirectionY[direction] * localStepSize;
+
+    Clamp(point->position, activeProblem);
+
+    point->tested = 0;
+    point->value = INFINITY;
+}
+
+static void ResetLocalPoints(Agent* agent)
+{
+    for (int i = 0; i < DIRECTION_COUNT; i++)
+        BuildLocalPoint(agent, i);
+}
+
+static void StartLocalSearch(Agent* agent)
+{
+    agent->baseDirection = rand() % DIRECTION_COUNT;
+
+    agent->rotated = 0;
+    agent->phase = PHASE_FIRST;
+
+    ResetLocalPoints(agent);
+}
+
+static void MoveAgent(
+    Agent* agent,
+    int direction)
+{
+    LocalPoint* point = &agent->localPoints[direction];
+
+    CopyVector(
+        agent->position,
+        point->position,
+        activeProblem->dim);
+
+    agent->currentValue = point->value;
+
+    StartLocalSearch(agent);
+}
+
+static void TeleportAgentRandomly(Agent* agent)
 {
     for (int d = 0; d < activeProblem->dim; d++) {
-        candidate->position[d] = agent->position[d]
-            + candidate->direction[d]
-                * agent->stepSize
-                * agent->searchDepth;
+        agent->position[d] = RandomDouble(
+            activeProblem->lower,
+            activeProblem->upper);
     }
 
-    Clamp(candidate->position, activeProblem);
+    agent->currentValue = Evaluate(agent->position);
 
-    candidate->value = Evaluate(candidate->position);
-}
-
-static void RemoveWorstHalf(Agent* agent)
-{
-    int activeCount = CountActive(agent);
-
-    if (activeCount <= 1)
-        return;
-
-    int removeCount = activeCount / 2;
-
-    for (int r = 0; r < removeCount; r++) {
-        int worstIndex = -1;
-        double worstValue = -INFINITY;
-
-        for (int i = 0; i < DIRECTION_COUNT; i++) {
-            if (!agent->candidates[i].active)
-                continue;
-
-            if (agent->candidates[i].value > worstValue) {
-                worstValue = agent->candidates[i].value;
-                worstIndex = i;
-            }
-        }
-
-        if (worstIndex >= 0)
-            agent->candidates[worstIndex].active = 0;
-    }
-}
-
-static int GetRemainingCandidate(const Agent* agent)
-{
-    for (int i = 0; i < DIRECTION_COUNT; i++) {
-        if (agent->candidates[i].active)
-            return i;
-    }
-
-    return -1;
-}
-
-static void FinishSearch(Agent* agent)
-{
-    int winner = GetRemainingCandidate(agent);
-
-    if (winner < 0) {
-        StartSearch(agent);
-        return;
-    }
-
-    DirectionCandidate* candidate = &agent->candidates[winner];
-
-    if (candidate->value < agent->currentValue) {
-        CopyVector(
-            agent->position,
-            candidate->position,
-            activeProblem->dim);
-
-        agent->currentValue = candidate->value;
-    } else
-        agent->stepSize *= 0.5;
-
-    double minimumStep = (activeProblem->upper - activeProblem->lower)
-        * 0.000001;
-
-    if (agent->stepSize < minimumStep) {
-        agent->stepSize = (activeProblem->upper - activeProblem->lower)
-            * 0.05;
-    }
-
-    StartSearch(agent);
-}
-
-static void StepAgent(Agent* agent)
-{
-    int activeCount = CountActive(agent);
-
-    if (activeCount <= 1) {
-        FinishSearch(agent);
-        return;
-    }
-
-    for (int i = 0; i < DIRECTION_COUNT; i++) {
-        if (!agent->candidates[i].active)
-            continue;
-
-        EvaluateCandidate(
-            agent,
-            &agent->candidates[i]);
-    }
-
-    RemoveWorstHalf(agent);
-
-    agent->searchDepth++;
+    StartLocalSearch(agent);
 }
 
 static void TeleportAgentToCell(
@@ -286,12 +229,140 @@ static void TeleportAgentToCell(
 
     agent->currentValue = Evaluate(agent->position);
 
-    agent->stepSize = (activeProblem->upper - activeProblem->lower)
-        * 0.05;
+    StartLocalSearch(agent);
+}
 
-    agent->rotation = RandomDouble(0.0, 2.0 * M_PI);
+static void TestDirection(
+    Agent* agent,
+    int direction)
+{
+    LocalPoint* point = &agent->localPoints[direction];
 
-    StartSearch(agent);
+    point->value = Evaluate(point->position);
+
+    point->tested = 1;
+}
+
+static int GetDirection(
+    const Agent* agent,
+    int offset)
+{
+    return (agent->baseDirection + offset)
+        % DIRECTION_COUNT;
+}
+
+static int FindBestTestedDirection(
+    const Agent* agent)
+{
+    int bestDirection = -1;
+    double bestValue = agent->currentValue;
+
+    for (int i = 0; i < DIRECTION_COUNT; i++) {
+        if (!agent->localPoints[i].tested)
+            continue;
+
+        if (agent->localPoints[i].value < bestValue) {
+            bestValue = agent->localPoints[i].value;
+
+            bestDirection = i;
+        }
+    }
+
+    return bestDirection;
+}
+
+static void RotateLocalSearch(Agent* agent)
+{
+    agent->baseDirection = (agent->baseDirection + 1)
+        % DIRECTION_COUNT;
+
+    agent->rotated = 1;
+    agent->phase = PHASE_FIRST;
+}
+
+static void StepAgent(Agent* agent)
+{
+    int first = GetDirection(agent, 0);
+
+    int opposite = GetDirection(agent, 4);
+
+    int perpendicular1 = GetDirection(agent, 2);
+
+    int perpendicular2 = GetDirection(agent, 6);
+
+    if (agent->phase == PHASE_FIRST) {
+        TestDirection(agent, first);
+
+        if (agent->localPoints[first].value < agent->currentValue) {
+            MoveAgent(agent, first);
+            return;
+        }
+
+        agent->phase = PHASE_OPPOSITE;
+        return;
+    }
+
+    if (agent->phase == PHASE_OPPOSITE) {
+        TestDirection(agent, opposite);
+
+        if (agent->localPoints[opposite].value < agent->currentValue) {
+            MoveAgent(agent, opposite);
+            return;
+        }
+
+        agent->phase = PHASE_PERPENDICULAR_1;
+        return;
+    }
+
+    if (agent->phase == PHASE_PERPENDICULAR_1) {
+        TestDirection(
+            agent,
+            perpendicular1);
+
+        agent->phase = PHASE_PERPENDICULAR_2;
+
+        return;
+    }
+
+    if (agent->phase == PHASE_PERPENDICULAR_2) {
+        TestDirection(
+            agent,
+            perpendicular2);
+
+        int bestDirection = FindBestTestedDirection(agent);
+
+        if (bestDirection >= 0) {
+            MoveAgent(
+                agent,
+                bestDirection);
+
+            return;
+        }
+
+        /*
+         * The centre was better than the first
+         * four tested neighbours.
+         *
+         * Rotate the local cross by 45 degrees.
+         * This examines the remaining four cells
+         * of the 3 x 3 neighbourhood.
+         */
+        if (!agent->rotated) {
+            RotateLocalSearch(agent);
+            return;
+        }
+
+        /*
+         * All eight neighbouring cells have now
+         * been tested and the current position is
+         * still the best.
+         *
+         * The agent reports "stuck" and HQ
+         * immediately teleports it to a random
+         * position.
+         */
+        TeleportAgentRandomly(agent);
+    }
 }
 
 static void HeadquartersRedistribute(void)
@@ -356,6 +427,7 @@ static void HeadquartersRedistribute(void)
 
             if (agents[a].currentValue > worstAgentValue) {
                 worstAgentValue = agents[a].currentValue;
+
                 worstAgent = a;
             }
         }
@@ -374,7 +446,8 @@ static void HeadquartersRedistribute(void)
 
         for (int y = 0; y < HQ_GRID_SIZE; y++) {
             for (int x = 0; x < HQ_GRID_SIZE; x++) {
-                double exploration = 1.0 / (1.0 + density[x][y]);
+                double exploration = 1.0
+                    / (1.0 + density[x][y]);
 
                 double quality = 0.0;
 
@@ -399,7 +472,9 @@ static void HeadquartersRedistribute(void)
                     bestCellY = y;
 
                     equalBestCount = 1;
-                } else if (fabs(score - highestScore) < 1e-12) {
+                } else if (
+                    fabs(score - highestScore)
+                    < 1e-12) {
                     equalBestCount++;
 
                     if (rand() % equalBestCount == 0) {
@@ -430,6 +505,9 @@ static void DirectionalTreeInteractiveInit(
     testedPointCount = 0;
     hqStepCounter = 0;
 
+    localStepSize = (problem->upper - problem->lower)
+        * LOCAL_STEP_FRACTION;
+
     for (int a = 0; a < AGENT_COUNT; a++) {
         Agent* agent = &agents[a];
 
@@ -441,12 +519,7 @@ static void DirectionalTreeInteractiveInit(
 
         agent->currentValue = Evaluate(agent->position);
 
-        agent->stepSize = (problem->upper - problem->lower)
-            * 0.05;
-
-        agent->rotation = RandomDouble(0.0, 2.0 * M_PI);
-
-        StartSearch(agent);
+        StartLocalSearch(agent);
     }
 }
 
@@ -481,8 +554,11 @@ static void DirectionalTreeInteractiveGetPoint(
 {
     if (index < testedPointCount) {
         *x = testedPoints[index].position[0];
+
         *y = testedPoints[index].position[1];
+
         *type = DIRECTIONAL_TREE_TESTED_TYPE;
+
         return;
     }
 
@@ -491,7 +567,9 @@ static void DirectionalTreeInteractiveGetPoint(
     if (index < AGENT_COUNT) {
         *x = agents[index].position[0];
         *y = agents[index].position[1];
+
         *type = DIRECTIONAL_TREE_AGENT_TYPE;
+
         return;
     }
 
@@ -499,17 +577,17 @@ static void DirectionalTreeInteractiveGetPoint(
 
     int agentIndex = index / DIRECTION_COUNT;
 
-    int candidateIndex = index % DIRECTION_COUNT;
+    int direction = index % DIRECTION_COUNT;
 
-    DirectionCandidate* candidate = &agents[agentIndex].candidates[candidateIndex];
+    LocalPoint* point = &agents[agentIndex].localPoints[direction];
 
-    *x = candidate->position[0];
-    *y = candidate->position[1];
+    *x = point->position[0];
+    *y = point->position[1];
 
-    if (candidate->active)
-        *type = DIRECTIONAL_TREE_ACTIVE_TYPE;
-    else
+    if (point->tested)
         *type = DIRECTIONAL_TREE_INACTIVE_TYPE;
+    else
+        *type = DIRECTIONAL_TREE_ACTIVE_TYPE;
 }
 
 static void DirectionalTreeInteractiveGetBest(
@@ -520,7 +598,9 @@ static void DirectionalTreeInteractiveGetBest(
 {
     *x = result.bestX[0];
     *y = result.bestX[1];
+
     *value = result.bestValue;
+
     *evaluations = result.evaluations;
 }
 
