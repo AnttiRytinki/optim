@@ -14,7 +14,7 @@ gcc -Wall -Wextra -O2 \
     -lm \
     -o opt_bench || exit 1
 
-./opt_bench
+./opt_bench "$@"
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 DESTINATION="History/Optim-$TIMESTAMP"

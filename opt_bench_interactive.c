@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "optimizers.h"
@@ -196,8 +197,15 @@ static void PrintTimeResult(
     printf("\n");
 }
 
-int main(void)
+int main(int argc, char* argv[])
 {
+    int runTimeBenchmark = 0;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-t") == 0)
+            runTimeBenchmark = 1;
+    }
+
     srand((unsigned int)time(NULL));
 
     TestProblem* problems[] = {
@@ -236,31 +244,33 @@ int main(void)
         printf("\n");
     }
 
-    printf("\n");
-    printf("Time benchmark\n");
-    printf("Runs per algorithm: %d\n", TIME_RUNS);
-    printf("Metric: average best value reached\n");
-    printf("Time checkpoints in milliseconds\n\n");
-
-    for (int p = 0; p < problemCount; p++) {
-        printf("%s\n\n", problems[p]->name);
-
-        PrintTimeHeader();
-
-        for (int i = 0; i < OptimizerCount; i++) {
-            double averages[TIME_CHECKPOINT_COUNT];
-
-            BenchmarkTime(
-                Optimizers[i],
-                problems[p],
-                averages);
-
-            PrintTimeResult(
-                Optimizers[i]->name,
-                averages);
-        }
-
+    if (runTimeBenchmark) {
         printf("\n");
+        printf("Time benchmark\n");
+        printf("Runs per algorithm: %d\n", TIME_RUNS);
+        printf("Metric: average best value reached\n");
+        printf("Time checkpoints in milliseconds\n\n");
+
+        for (int p = 0; p < problemCount; p++) {
+            printf("%s\n\n", problems[p]->name);
+
+            PrintTimeHeader();
+
+            for (int i = 0; i < OptimizerCount; i++) {
+                double averages[TIME_CHECKPOINT_COUNT];
+
+                BenchmarkTime(
+                    Optimizers[i],
+                    problems[p],
+                    averages);
+
+                PrintTimeResult(
+                    Optimizers[i]->name,
+                    averages);
+            }
+
+            printf("\n");
+        }
     }
 
     return 0;
