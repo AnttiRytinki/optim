@@ -12,8 +12,8 @@
 
 #define REFINER_COUNT 2
 
-#define HQ_SEARCH_TOLERANCE_FRACTION 0.002
-#define HQ_MAX_SEARCH_NODES 20000
+#define HQ_SEARCH_TOLERANCE_FRACTION 0.005
+#define HQ_MAX_SEARCH_NODES 2000
 
 #define DIRECTIONAL_TREE_AGENT_TYPE 5
 #define DIRECTIONAL_TREE_ACTIVE_TYPE 6
@@ -68,6 +68,8 @@ static Agent agents[AGENT_COUNT];
 static TestedPoint testedPoints[MAX_TESTED_POINTS];
 static int testedPointCount;
 
+static int globalCoverageComplete;
+
 static const int DirectionX[DIRECTION_COUNT] = {
     0,
     1,
@@ -107,7 +109,9 @@ static void Clamp(double* x, const TestProblem* problem)
     }
 }
 
-static void RegisterTestedPoint(const double* position, double value)
+static void RegisterTestedPoint(
+    const double* position,
+    double value)
 {
     if (testedPointCount >= MAX_TESTED_POINTS)
         return;
@@ -130,7 +134,9 @@ static double Evaluate(const double* position)
 
     result.evaluations++;
 
-    RegisterTestedPoint(position, value);
+    RegisterTestedPoint(
+        position,
+        value);
 
     if (value < result.bestValue) {
         result.bestValue = value;
@@ -263,7 +269,9 @@ static void RotateLocalSearch(Agent* agent)
     agent->phase = PHASE_FIRST;
 }
 
-static double GetClearance(double x, double y)
+static double GetClearance(
+    double x,
+    double y)
 {
     double clearance = fmin(
         fmin(
@@ -293,7 +301,8 @@ static double GetClearance(double x, double y)
 
 static void FindLargestEmptySquare(
     double* bestX,
-    double* bestY)
+    double* bestY,
+    double* bestClearance)
 {
     SearchRegion regions[HQ_MAX_SEARCH_NODES];
 
@@ -302,11 +311,13 @@ static void FindLargestEmptySquare(
     double width = activeProblem->upper
         - activeProblem->lower;
 
-    regions[0].cx = (activeProblem->lower
+    double center = (activeProblem->lower
                         + activeProblem->upper)
         * 0.5;
 
-    regions[0].cy = regions[0].cx;
+    regions[0].cx = center;
+
+    regions[0].cy = center;
 
     regions[0].halfSize = width * 0.5;
 
@@ -317,9 +328,10 @@ static void FindLargestEmptySquare(
     regions[0].upperBound = regions[0].clearance
         + regions[0].halfSize;
 
-    double bestClearance = regions[0].clearance;
+    double bestClearanceLocal = regions[0].clearance;
 
     *bestX = regions[0].cx;
+
     *bestY = regions[0].cy;
 
     double tolerance = width
@@ -349,7 +361,7 @@ static void FindLargestEmptySquare(
 
         if (
             region.upperBound
-            <= bestClearance) {
+            <= bestClearanceLocal) {
             continue;
         }
 
@@ -396,35 +408,78 @@ static void FindLargestEmptySquare(
 
             if (
                 child.clearance
-                > bestClearance) {
-                bestClearance = child.clearance;
+                > bestClearanceLocal) {
+                bestClearanceLocal = child.clearance;
 
                 *bestX = child.cx;
+
                 *bestY = child.cy;
             }
 
             if (
                 child.upperBound
-                > bestClearance) {
+                > bestClearanceLocal) {
                 regions[regionCount] = child;
 
                 regionCount++;
             }
         }
     }
+
+    *bestClearance = bestClearanceLocal;
 }
 
-static void TeleportAgentToLargestHole(
+static void TeleportAgentRandomly(
     Agent* agent)
 {
+    for (int d = 0; d < activeProblem->dim; d++) {
+        agent->position[d] = RandomDouble(
+            activeProblem->lower,
+            activeProblem->upper);
+    }
+
+    agent->currentValue = Evaluate(agent->position);
+
+    agent->stepSize = GetMaximumStep();
+
+    StartLocalSearch(agent);
+}
+
+static void TeleportAgentForExploration(
+    Agent* agent)
+{
+    if (globalCoverageComplete) {
+        TeleportAgentRandomly(agent);
+        return;
+    }
+
     double x;
     double y;
+    double clearance;
 
     FindLargestEmptySquare(
         &x,
-        &y);
+        &y,
+        &clearance);
+
+    /*
+     * If the largest remaining empty square
+     * is no larger than the maximum local
+     * step scale, HQ considers coarse global
+     * coverage complete.
+     *
+     * From this point on we permanently stop
+     * running the expensive geometric search.
+     */
+    if (clearance <= GetMaximumStep()) {
+        globalCoverageComplete = 1;
+
+        TeleportAgentRandomly(agent);
+        return;
+    }
 
     agent->position[0] = x;
+
     agent->position[1] = y;
 
     for (int d = 2; d < activeProblem->dim; d++) {
@@ -440,7 +495,8 @@ static void TeleportAgentToLargestHole(
     StartLocalSearch(agent);
 }
 
-static int ShouldRefine(const Agent* agent)
+static int ShouldRefine(
+    const Agent* agent)
 {
     int betterAgents = 0;
 
@@ -458,7 +514,8 @@ static int ShouldRefine(const Agent* agent)
     return betterAgents < REFINER_COUNT;
 }
 
-static void RefineAgent(Agent* agent)
+static void RefineAgent(
+    Agent* agent)
 {
     agent->stepSize *= 0.5;
 
@@ -470,7 +527,8 @@ static void RefineAgent(Agent* agent)
     StartLocalSearch(agent);
 }
 
-static void HandleStuckAgent(Agent* agent)
+static void HandleStuckAgent(
+    Agent* agent)
 {
     if (
         ShouldRefine(agent)
@@ -479,10 +537,11 @@ static void HandleStuckAgent(Agent* agent)
         return;
     }
 
-    TeleportAgentToLargestHole(agent);
+    TeleportAgentForExploration(agent);
 }
 
-static void StepAgent(Agent* agent)
+static void StepAgent(
+    Agent* agent)
 {
     int first = GetDirection(agent, 0);
 
@@ -579,6 +638,7 @@ static void DirectionalTreeInteractiveInit(
     result.bestValue = INFINITY;
 
     testedPointCount = 0;
+    globalCoverageComplete = 0;
 
     for (int a = 0; a < AGENT_COUNT; a++) {
         Agent* agent = &agents[a];
