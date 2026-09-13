@@ -12,7 +12,6 @@
 #define MIN_STEP_FRACTION 0.0000001
 
 #define REFINER_COUNT 2
-#define MAX_CONSECUTIVE_REFINEMENTS 10
 
 #define HQ_CANDIDATE_COUNT 512
 
@@ -40,8 +39,6 @@ typedef struct {
   int baseDirection;
   int rotated;
   int phase;
-
-  int consecutiveRefinements;
 
   LocalPoint localPoints[DIRECTION_COUNT];
 } Agent;
@@ -267,8 +264,6 @@ static int GetLargestHoleCandidate(double *x, double *y, double *clearance) {
 }
 
 static void TeleportAgentRandomly(Agent *agent) {
-  agent->consecutiveRefinements = 0;
-
   for (int d = 0; d < activeProblem->dim; d++)
     agent->position[d] =
         RandomDouble(activeProblem->lower, activeProblem->upper);
@@ -280,8 +275,6 @@ static void TeleportAgentRandomly(Agent *agent) {
 }
 
 static void TeleportAgentForExploration(Agent *agent) {
-  agent->consecutiveRefinements = 0;
-
   if (globalCoverageComplete) {
     TeleportAgentRandomly(agent);
     return;
@@ -338,7 +331,6 @@ static int ShouldRefine(const Agent *agent) {
 
 static void RefineAgent(Agent *agent) {
   refinementCount++;
-  agent->consecutiveRefinements++;
 
   agent->stepSize *= 0.5;
 
@@ -351,8 +343,7 @@ static void RefineAgent(Agent *agent) {
 }
 
 static void HandleStuckAgent(Agent *agent) {
-  if (ShouldRefine(agent) && agent->stepSize > GetMinimumStep() &&
-      agent->consecutiveRefinements < MAX_CONSECUTIVE_REFINEMENTS) {
+  if (ShouldRefine(agent) && agent->stepSize > GetMinimumStep()) {
     RefineAgent(agent);
     return;
   }
@@ -430,8 +421,6 @@ static void ScoutHQInteractiveInit(const TestProblem *problem) {
 
   for (int a = 0; a < AGENT_COUNT; a++) {
     Agent *agent = &agents[a];
-
-    agent->consecutiveRefinements = 0;
 
     for (int d = 0; d < problem->dim; d++)
       agent->position[d] = RandomDouble(problem->lower, problem->upper);
