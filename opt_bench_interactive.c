@@ -123,13 +123,13 @@ static void BenchmarkConvergence(InteractiveOptimizer *optimizer,
         if (checkpointIndex == CHECKPOINT_COUNT - 1) {
           finalValues[run] = value;
 
-          if (optimizer == &ScoutHQOptimizer && problem == &AckleyProblem &&
+          if (optimizer == &ScoutHQOptimizer && problem == &GriewankProblem &&
               fabs(value - problem->optimumValue) >= SUCCESS_THRESHOLD) {
             ScoutHQDiagnostics diagnostics;
 
             ScoutHQGetDiagnostics(&diagnostics);
 
-            printf("ScoutHQ Ackley miss %3d: "
+            printf("ScoutHQ Griewank miss %3d: "
                    "value=% .9e "
                    "x=% .9e "
                    "y=% .9e "
