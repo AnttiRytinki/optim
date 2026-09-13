@@ -12,6 +12,7 @@
 #define MIN_STEP_FRACTION 0.0000001
 
 #define REFINER_COUNT 2
+#define MAX_CONSECUTIVE_REFINEMENTS 10
 
 #define HQ_CANDIDATE_COUNT 512
 
@@ -39,6 +40,8 @@ typedef struct {
   int baseDirection;
   int rotated;
   int phase;
+
+  int consecutiveRefinements;
 
   LocalPoint localPoints[DIRECTION_COUNT];
 } Agent;
@@ -100,9 +103,7 @@ static double Halton(int index, int base) {
 
   while (index > 0) {
     fraction /= base;
-
     result += fraction * (index % base);
-
     index /= base;
   }
 
@@ -111,24 +112,16 @@ static double Halton(int index, int base) {
 
 static void InitializeHQCandidates(void) {
   double lower = activeProblem->lower;
-
   double upper = activeProblem->upper;
-
   double width = upper - lower;
 
   for (int i = 0; i < HQ_CANDIDATE_COUNT; i++) {
     double hx = Halton(i + 1, 2);
-
     double hy = Halton(i + 1, 3);
 
     hqCandidates[i].x = lower + hx * width;
-
     hqCandidates[i].y = lower + hy * width;
 
-    /*
-     * Initial clearance is limited only
-     * by the boundaries of the search area.
-     */
     hqCandidates[i].clearance =
         fmin(fmin(hqCandidates[i].x - lower, upper - hqCandidates[i].x),
              fmin(hqCandidates[i].y - lower, upper - hqCandidates[i].y));
@@ -141,18 +134,12 @@ static void UpdateHQCoverage(const double *position) {
 
   for (int i = 0; i < HQ_CANDIDATE_COUNT; i++) {
     double dx = fabs(hqCandidates[i].x - position[0]);
-
     double dy = fabs(hqCandidates[i].y - position[1]);
 
-    /*
-     * Chebyshev distance corresponds to
-     * an axis-aligned empty square.
-     */
     double distance = fmax(dx, dy);
 
-    if (distance < hqCandidates[i].clearance) {
+    if (distance < hqCandidates[i].clearance)
       hqCandidates[i].clearance = distance;
-    }
   }
 }
 
@@ -174,12 +161,10 @@ static double Evaluate(const double *position) {
   result.evaluations++;
 
   RegisterTestedPoint(position, value);
-
   UpdateHQCoverage(position);
 
   if (value < result.bestValue) {
     result.bestValue = value;
-
     CopyVector(result.bestX, position, activeProblem->dim);
   }
 
@@ -192,7 +177,6 @@ static void BuildLocalPoint(Agent *agent, int direction) {
   CopyVector(point->position, agent->position, activeProblem->dim);
 
   point->position[0] += DirectionX[direction] * agent->stepSize;
-
   point->position[1] += DirectionY[direction] * agent->stepSize;
 
   Clamp(point->position, activeProblem);
@@ -208,7 +192,6 @@ static void ResetLocalPoints(Agent *agent) {
 
 static void StartLocalSearch(Agent *agent) {
   agent->baseDirection = rand() % DIRECTION_COUNT;
-
   agent->rotated = 0;
   agent->phase = PHASE_FIRST;
 
@@ -229,7 +212,6 @@ static void TestDirection(Agent *agent, int direction) {
   LocalPoint *point = &agent->localPoints[direction];
 
   point->value = Evaluate(point->position);
-
   point->tested = 1;
 }
 
@@ -247,7 +229,6 @@ static int FindBestTestedDirection(const Agent *agent) {
 
     if (agent->localPoints[i].value < bestValue) {
       bestValue = agent->localPoints[i].value;
-
       bestDirection = i;
     }
   }
@@ -256,16 +237,7 @@ static int FindBestTestedDirection(const Agent *agent) {
 }
 
 static void RotateLocalSearch(Agent *agent) {
-  /*
-   * Rotating the discrete cross by one
-   * direction means 45 degrees.
-   *
-   * This is not arbitrary direction rotation.
-   * It simply switches from the cardinal cross
-   * to the diagonal cross, or vice versa.
-   */
   agent->baseDirection = (agent->baseDirection + 1) % DIRECTION_COUNT;
-
   agent->rotated = 1;
   agent->phase = PHASE_FIRST;
 }
@@ -280,7 +252,6 @@ static int GetLargestHoleCandidate(double *x, double *y, double *clearance) {
   for (int i = 0; i < HQ_CANDIDATE_COUNT; i++) {
     if (hqCandidates[i].clearance > bestClearance) {
       bestClearance = hqCandidates[i].clearance;
-
       bestIndex = i;
     }
   }
@@ -289,28 +260,28 @@ static int GetLargestHoleCandidate(double *x, double *y, double *clearance) {
     return 0;
 
   *x = hqCandidates[bestIndex].x;
-
   *y = hqCandidates[bestIndex].y;
-
   *clearance = hqCandidates[bestIndex].clearance;
 
   return 1;
 }
 
 static void TeleportAgentRandomly(Agent *agent) {
-  for (int d = 0; d < activeProblem->dim; d++) {
+  agent->consecutiveRefinements = 0;
+
+  for (int d = 0; d < activeProblem->dim; d++)
     agent->position[d] =
         RandomDouble(activeProblem->lower, activeProblem->upper);
-  }
 
   agent->stepSize = GetMaximumStep();
-
   agent->currentValue = Evaluate(agent->position);
 
   StartLocalSearch(agent);
 }
 
 static void TeleportAgentForExploration(Agent *agent) {
+  agent->consecutiveRefinements = 0;
+
   if (globalCoverageComplete) {
     TeleportAgentRandomly(agent);
     return;
@@ -328,12 +299,8 @@ static void TeleportAgentForExploration(Agent *agent) {
   }
 
   /*
-   * Once the largest remaining hole is no
-   * larger than an agent's maximum local step,
-   * coarse global coverage is considered done.
-   *
-   * HQ then permanently stops maintaining and
-   * searching the coverage candidates.
+   * Once the largest remaining hole is no larger than the
+   * maximum local step, coarse global coverage is complete.
    */
   if (clearance <= GetMaximumStep()) {
     globalCoverageComplete = 1;
@@ -343,16 +310,13 @@ static void TeleportAgentForExploration(Agent *agent) {
   }
 
   agent->position[0] = x;
-
   agent->position[1] = y;
 
-  for (int d = 2; d < activeProblem->dim; d++) {
+  for (int d = 2; d < activeProblem->dim; d++)
     agent->position[d] =
         RandomDouble(activeProblem->lower, activeProblem->upper);
-  }
 
   agent->stepSize = GetMaximumStep();
-
   agent->currentValue = Evaluate(agent->position);
 
   StartLocalSearch(agent);
@@ -365,9 +329,8 @@ static int ShouldRefine(const Agent *agent) {
     if (&agents[i] == agent)
       continue;
 
-    if (agents[i].currentValue < agent->currentValue) {
+    if (agents[i].currentValue < agent->currentValue)
       betterAgents++;
-    }
   }
 
   return betterAgents < REFINER_COUNT;
@@ -375,6 +338,7 @@ static int ShouldRefine(const Agent *agent) {
 
 static void RefineAgent(Agent *agent) {
   refinementCount++;
+  agent->consecutiveRefinements++;
 
   agent->stepSize *= 0.5;
 
@@ -387,7 +351,8 @@ static void RefineAgent(Agent *agent) {
 }
 
 static void HandleStuckAgent(Agent *agent) {
-  if (ShouldRefine(agent) && agent->stepSize > GetMinimumStep()) {
+  if (ShouldRefine(agent) && agent->stepSize > GetMinimumStep() &&
+      agent->consecutiveRefinements < MAX_CONSECUTIVE_REFINEMENTS) {
     RefineAgent(agent);
     return;
   }
@@ -397,11 +362,8 @@ static void HandleStuckAgent(Agent *agent) {
 
 static void StepAgent(Agent *agent) {
   int first = GetDirection(agent, 0);
-
   int opposite = GetDirection(agent, 4);
-
   int perpendicular1 = GetDirection(agent, 2);
-
   int perpendicular2 = GetDirection(agent, 6);
 
   if (agent->phase == PHASE_FIRST) {
@@ -409,12 +371,10 @@ static void StepAgent(Agent *agent) {
 
     if (agent->localPoints[first].value < agent->currentValue) {
       MoveAgent(agent, first);
-
       return;
     }
 
     agent->phase = PHASE_OPPOSITE;
-
     return;
   }
 
@@ -423,12 +383,10 @@ static void StepAgent(Agent *agent) {
 
     if (agent->localPoints[opposite].value < agent->currentValue) {
       MoveAgent(agent, opposite);
-
       return;
     }
 
     agent->phase = PHASE_PERPENDICULAR_1;
-
     return;
   }
 
@@ -436,7 +394,6 @@ static void StepAgent(Agent *agent) {
     TestDirection(agent, perpendicular1);
 
     agent->phase = PHASE_PERPENDICULAR_2;
-
     return;
   }
 
@@ -447,7 +404,6 @@ static void StepAgent(Agent *agent) {
 
     if (bestDirection >= 0) {
       MoveAgent(agent, bestDirection);
-
       return;
     }
 
@@ -456,11 +412,6 @@ static void StepAgent(Agent *agent) {
       return;
     }
 
-    /*
-     * All eight neighbours have been tested.
-     * The agent is at the lowest point of its
-     * current 3 x 3 neighbourhood.
-     */
     HandleStuckAgent(agent);
   }
 }
@@ -472,7 +423,6 @@ static void ScoutHQInteractiveInit(const TestProblem *problem) {
   result.bestValue = INFINITY;
 
   testedPointCount = 0;
-
   globalCoverageComplete = 0;
   refinementCount = 0;
 
@@ -481,12 +431,12 @@ static void ScoutHQInteractiveInit(const TestProblem *problem) {
   for (int a = 0; a < AGENT_COUNT; a++) {
     Agent *agent = &agents[a];
 
-    for (int d = 0; d < problem->dim; d++) {
+    agent->consecutiveRefinements = 0;
+
+    for (int d = 0; d < problem->dim; d++)
       agent->position[d] = RandomDouble(problem->lower, problem->upper);
-    }
 
     agent->stepSize = GetMaximumStep();
-
     agent->currentValue = Evaluate(agent->position);
 
     StartLocalSearch(agent);
@@ -509,11 +459,8 @@ static void ScoutHQInteractiveGetPoint(int index, double *x, double *y,
                                        int *type) {
   if (index < testedPointCount) {
     *x = testedPoints[index].position[0];
-
     *y = testedPoints[index].position[1];
-
     *type = SCOUT_HQ_TESTED_TYPE;
-
     return;
   }
 
@@ -521,41 +468,32 @@ static void ScoutHQInteractiveGetPoint(int index, double *x, double *y,
 
   if (index < AGENT_COUNT) {
     *x = agents[index].position[0];
-
     *y = agents[index].position[1];
-
     *type = SCOUT_HQ_AGENT_TYPE;
-
     return;
   }
 
   index -= AGENT_COUNT;
 
   int agentIndex = index / DIRECTION_COUNT;
-
   int direction = index % DIRECTION_COUNT;
 
   LocalPoint *point = &agents[agentIndex].localPoints[direction];
 
   *x = point->position[0];
-
   *y = point->position[1];
 
-  if (point->tested) {
+  if (point->tested)
     *type = SCOUT_HQ_INACTIVE_TYPE;
-  } else {
+  else
     *type = SCOUT_HQ_ACTIVE_TYPE;
-  }
 }
 
 static void ScoutHQInteractiveGetBest(double *x, double *y, double *value,
                                       int *evaluations) {
   *x = result.bestX[0];
-
   *y = result.bestX[1];
-
   *value = result.bestValue;
-
   *evaluations = result.evaluations;
 }
 
