@@ -115,6 +115,16 @@ static void DrawBest(SDL_Renderer *renderer, const TestProblem *problem,
   DrawCircle(renderer, ToScreenX(x, problem), ToScreenY(y, problem), 8);
 }
 
+static void DrawKnownOptima(SDL_Renderer *renderer,
+                            const TestProblem *problem) {
+  SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+
+  for (int i = 0; i < problem->optimumCount; i++) {
+    DrawCircle(renderer, ToScreenX(problem->optima[i][0], problem),
+               ToScreenY(problem->optima[i][1], problem), 5);
+  }
+}
+
 static void UpdateWindowTitle(SDL_Window *window,
                               InteractiveOptimizer *optimizer,
                               const char *problemName) {
@@ -227,6 +237,7 @@ int main(void) {
     DrawBackground(renderer, problem);
     DrawSeekers(renderer, problem, Optimizers[selectedOptimizer]);
     DrawBest(renderer, problem, Optimizers[selectedOptimizer]);
+    DrawKnownOptima(renderer, problem);
 
     SDL_RenderPresent(renderer);
   }
