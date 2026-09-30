@@ -8,17 +8,11 @@ extern InteractiveOptimizer HillClimbOptimizer;
 extern InteractiveOptimizer DifferentialEvolutionOptimizer;
 extern InteractiveOptimizer ScoutHQOptimizer;
 
-double RandomDouble(double min, double max)
-{
-    return min + (max - min) * ((double)rand() / (double)RAND_MAX);
+double RandomDouble(double min, double max) {
+  return min + (max - min) * ((double)rand() / (double)RAND_MAX);
 }
 
-InteractiveOptimizer* Optimizers[] = {
-    &ExploreExploitOptimizer,
-    &RandomSearchOptimizer,
-    &HillClimbOptimizer,
-    &DifferentialEvolutionOptimizer,
-    &ScoutHQOptimizer
-};
+InteractiveOptimizer *Optimizers[] = {
+    &HillClimbOptimizer, &DifferentialEvolutionOptimizer, &ScoutHQOptimizer};
 
 int OptimizerCount = sizeof(Optimizers) / sizeof(Optimizers[0]);

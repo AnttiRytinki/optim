@@ -3,8 +3,6 @@
 gcc -Wall -Wextra -O2 \
     opt_view.c \
     optimizers.c \
-    ExploreExploitInteractive.c \
-    RandomSearchInteractive.c \
     HillClimbInteractive.c \
     DifferentialEvolutionInteractive.c \
     ScoutHQInteractive.c \
