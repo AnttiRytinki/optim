@@ -129,15 +129,31 @@ static void BenchmarkConvergence(InteractiveOptimizer *optimizer,
 
             ScoutHQGetDiagnostics(&diagnostics);
 
-            printf("ScoutHQ Griewank miss %3d: "
-                   "value=% .9e "
-                   "x=% .9e "
-                   "y=% .9e "
-                   "minStep=% .9e "
-                   "refinements=%d "
-                   "coverage=%d\n",
-                   run + 1, value, bestX, bestY, diagnostics.minimumStep,
-                   diagnostics.refinementCount, diagnostics.coverageComplete);
+            printf("\nScoutHQ Griewank miss %3d:\n", run + 1);
+
+            printf("  value=% .9e x=% .9e y=% .9e\n", value, bestX, bestY);
+
+            printf("  minStep=% .9e refinements=%d coverage=%d\n",
+                   diagnostics.minimumStep, diagnostics.refinementCount,
+                   diagnostics.coverageComplete);
+
+            for (int a = 0; a < 8; a++) {
+              printf("  Agent %d: "
+                     "closest=% .9e "
+                     "eval=%d "
+                     "step=% .9e "
+                     "best=% .9e "
+                     "teleports=%d "
+                     "refinements=%d\n",
+                     a, diagnostics.agents[a].closestOrigin,
+                     diagnostics.agents[a].closestOriginEvaluation,
+                     diagnostics.agents[a].closestOriginStepSize,
+                     diagnostics.agents[a].bestValue,
+                     diagnostics.agents[a].teleportCount,
+                     diagnostics.agents[a].refinementCount);
+            }
+
+            printf("\n");
           }
         }
 
