@@ -41,6 +41,13 @@ typedef struct {
   int phase;
 
   LocalPoint localPoints[DIRECTION_COUNT];
+
+  double closestOrigin;
+  int closestOriginEvaluation;
+  double closestOriginStepSize;
+  double bestAgentValue;
+  int teleportCount;
+  int refinementCount;
 } Agent;
 
 typedef struct {
@@ -168,6 +175,20 @@ static double Evaluate(const double *position) {
   return value;
 }
 
+static void UpdateAgentDiagnostics(Agent *agent, const double *position,
+                                   double value) {
+  double distance = sqrt(position[0] * position[0] + position[1] * position[1]);
+
+  if (distance < agent->closestOrigin) {
+    agent->closestOrigin = distance;
+    agent->closestOriginEvaluation = result.evaluations;
+    agent->closestOriginStepSize = agent->stepSize;
+  }
+
+  if (value < agent->bestAgentValue)
+    agent->bestAgentValue = value;
+}
+
 static void BuildLocalPoint(Agent *agent, int direction) {
   LocalPoint *point = &agent->localPoints[direction];
 
@@ -210,6 +231,8 @@ static void TestDirection(Agent *agent, int direction) {
 
   point->value = Evaluate(point->position);
   point->tested = 1;
+
+  UpdateAgentDiagnostics(agent, point->position, point->value);
 }
 
 static int GetDirection(const Agent *agent, int offset) {
@@ -264,12 +287,16 @@ static int GetLargestHoleCandidate(double *x, double *y, double *clearance) {
 }
 
 static void TeleportAgentRandomly(Agent *agent) {
+  agent->teleportCount++;
+
   for (int d = 0; d < activeProblem->dim; d++)
     agent->position[d] =
         RandomDouble(activeProblem->lower, activeProblem->upper);
 
   agent->stepSize = GetMaximumStep();
   agent->currentValue = Evaluate(agent->position);
+
+  UpdateAgentDiagnostics(agent, agent->position, agent->currentValue);
 
   StartLocalSearch(agent);
 }
@@ -302,6 +329,8 @@ static void TeleportAgentForExploration(Agent *agent) {
     return;
   }
 
+  agent->teleportCount++;
+
   agent->position[0] = x;
   agent->position[1] = y;
 
@@ -311,6 +340,8 @@ static void TeleportAgentForExploration(Agent *agent) {
 
   agent->stepSize = GetMaximumStep();
   agent->currentValue = Evaluate(agent->position);
+
+  UpdateAgentDiagnostics(agent, agent->position, agent->currentValue);
 
   StartLocalSearch(agent);
 }
@@ -331,6 +362,7 @@ static int ShouldRefine(const Agent *agent) {
 
 static void RefineAgent(Agent *agent) {
   refinementCount++;
+  agent->refinementCount++;
 
   agent->stepSize *= 0.5;
 
@@ -422,11 +454,20 @@ static void ScoutHQInteractiveInit(const TestProblem *problem) {
   for (int a = 0; a < AGENT_COUNT; a++) {
     Agent *agent = &agents[a];
 
+    agent->closestOrigin = INFINITY;
+    agent->closestOriginEvaluation = 0;
+    agent->closestOriginStepSize = 0.0;
+    agent->bestAgentValue = INFINITY;
+    agent->teleportCount = 0;
+    agent->refinementCount = 0;
+
     for (int d = 0; d < problem->dim; d++)
       agent->position[d] = RandomDouble(problem->lower, problem->upper);
 
     agent->stepSize = GetMaximumStep();
     agent->currentValue = Evaluate(agent->position);
+
+    UpdateAgentDiagnostics(agent, agent->position, agent->currentValue);
 
     StartLocalSearch(agent);
   }
