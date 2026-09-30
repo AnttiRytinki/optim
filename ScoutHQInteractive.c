@@ -538,6 +538,22 @@ void ScoutHQGetDiagnostics(ScoutHQDiagnostics *diagnostics) {
   diagnostics->minimumStep = minimumStep;
   diagnostics->refinementCount = refinementCount;
   diagnostics->coverageComplete = globalCoverageComplete;
+
+  for (int i = 0; i < AGENT_COUNT; i++) {
+    diagnostics->agents[i].closestOrigin = agents[i].closestOrigin;
+
+    diagnostics->agents[i].closestOriginEvaluation =
+        agents[i].closestOriginEvaluation;
+
+    diagnostics->agents[i].closestOriginStepSize =
+        agents[i].closestOriginStepSize;
+
+    diagnostics->agents[i].bestValue = agents[i].bestAgentValue;
+
+    diagnostics->agents[i].teleportCount = agents[i].teleportCount;
+
+    diagnostics->agents[i].refinementCount = agents[i].refinementCount;
+  }
 }
 
 InteractiveOptimizer ScoutHQOptimizer = {"ScoutHQ",
