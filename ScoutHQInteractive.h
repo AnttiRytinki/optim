@@ -5,6 +5,7 @@
 
 typedef struct {
   double closestOrigin;
+  double closestOriginValue;
   int closestOriginEvaluation;
   double closestOriginStepSize;
   double bestValue;

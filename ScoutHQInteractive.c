@@ -43,6 +43,7 @@ typedef struct {
   LocalPoint localPoints[DIRECTION_COUNT];
 
   double closestOrigin;
+  double closestOriginValue;
   int closestOriginEvaluation;
   double closestOriginStepSize;
   double bestAgentValue;
@@ -181,6 +182,7 @@ static void UpdateAgentDiagnostics(Agent *agent, const double *position,
 
   if (distance < agent->closestOrigin) {
     agent->closestOrigin = distance;
+    agent->closestOriginValue = value;
     agent->closestOriginEvaluation = result.evaluations;
     agent->closestOriginStepSize = agent->stepSize;
   }
@@ -455,6 +457,7 @@ static void ScoutHQInteractiveInit(const TestProblem *problem) {
     Agent *agent = &agents[a];
 
     agent->closestOrigin = INFINITY;
+    agent->closestOriginValue = INFINITY;
     agent->closestOriginEvaluation = 0;
     agent->closestOriginStepSize = 0.0;
     agent->bestAgentValue = INFINITY;
@@ -541,6 +544,8 @@ void ScoutHQGetDiagnostics(ScoutHQDiagnostics *diagnostics) {
 
   for (int i = 0; i < AGENT_COUNT; i++) {
     diagnostics->agents[i].closestOrigin = agents[i].closestOrigin;
+
+    diagnostics->agents[i].closestOriginValue = agents[i].closestOriginValue;
 
     diagnostics->agents[i].closestOriginEvaluation =
         agents[i].closestOriginEvaluation;

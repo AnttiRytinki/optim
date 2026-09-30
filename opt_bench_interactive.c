@@ -140,12 +140,14 @@ static void BenchmarkConvergence(InteractiveOptimizer *optimizer,
             for (int a = 0; a < 8; a++) {
               printf("  Agent %d: "
                      "closest=% .9e "
+                     "closestValue=% .9e "
                      "eval=%d "
                      "step=% .9e "
                      "best=% .9e "
                      "teleports=%d "
                      "refinements=%d\n",
                      a, diagnostics.agents[a].closestOrigin,
+                     diagnostics.agents[a].closestOriginValue,
                      diagnostics.agents[a].closestOriginEvaluation,
                      diagnostics.agents[a].closestOriginStepSize,
                      diagnostics.agents[a].bestValue,
