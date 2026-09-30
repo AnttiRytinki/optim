@@ -9,7 +9,7 @@
 #include "problems.h"
 
 #define RUNS 200
-#define TIME_RUNS 10
+#define TIME_RUNS 100
 
 #define SUCCESS_THRESHOLD 1e-6
 
