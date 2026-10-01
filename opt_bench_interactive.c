@@ -4,7 +4,6 @@
 #include <string.h>
 #include <time.h>
 
-#include "RandomHalvingInteractive.h"
 #include "ScoutHQInteractive.h"
 #include "optimizers.h"
 #include "problems.h"
@@ -96,7 +95,8 @@ static void CalculateFinalStatistics(double *values, int count,
 
 static void BenchmarkConvergence(InteractiveOptimizer *optimizer,
                                  const TestProblem *problem, double *averages,
-                                 FinalStatistics *finalStatistics) {
+                                 FinalStatistics *finalStatistics,
+                                 int diagnostics) {
   double totals[CHECKPOINT_COUNT] = {0.0};
   double finalValues[RUNS];
 
@@ -124,7 +124,8 @@ static void BenchmarkConvergence(InteractiveOptimizer *optimizer,
         if (checkpointIndex == CHECKPOINT_COUNT - 1) {
           finalValues[run] = value;
 
-          if (optimizer == &ScoutHQOptimizer && problem == &GriewankProblem &&
+          if (diagnostics && optimizer == &ScoutHQOptimizer &&
+              problem == &GriewankProblem &&
               fabs(value - problem->optimumValue) >= SUCCESS_THRESHOLD) {
             ScoutHQDiagnostics diagnostics;
 
@@ -276,10 +277,14 @@ static void PrintFinalStatistics(const char *name,
 
 int main(int argc, char *argv[]) {
   int runTimeBenchmark = 0;
+  int diagnostics = 0;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-t") == 0)
       runTimeBenchmark = 1;
+
+    if (strcmp(argv[i], "-d") == 0)
+      diagnostics = 1;
   }
 
   srand((unsigned int)time(NULL));
@@ -304,8 +309,8 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < OptimizerCount; i++) {
       double averages[CHECKPOINT_COUNT];
 
-      BenchmarkConvergence(Optimizers[i], problems[p], averages,
-                           &statistics[i]);
+      BenchmarkConvergence(Optimizers[i], problems[p], averages, &statistics[i],
+                           diagnostics);
 
       PrintEvaluationResult(Optimizers[i]->name, averages);
     }
