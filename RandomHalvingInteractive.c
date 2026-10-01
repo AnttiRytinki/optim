@@ -6,7 +6,6 @@
 
 #define GRID_SIZE 16
 #define CELL_COUNT (GRID_SIZE * GRID_SIZE)
-#define MIN_SAMPLES_PER_CELL 16
 #define MAX_POINTS 100000
 
 #define RANDOM_HALVING_ACTIVE_TYPE 9
@@ -51,6 +50,7 @@ static double bestY;
 static double bestValue;
 
 static int evaluations;
+static int zoomLevel;
 
 static void CreateGrid(double lowerX, double upperX, double lowerY,
                        double upperY) {
@@ -95,12 +95,25 @@ static int GetRandomActiveCell(void) {
   return -1;
 }
 
+static int GetMinimumSamplesPerCell(void) {
+  if (zoomLevel == 0)
+    return 32;
+
+  if (zoomLevel == 1)
+    return 16;
+
+  if (zoomLevel == 2)
+    return 8;
+
+  return 4;
+}
+
 static int AllActiveCellsSampled(void) {
   for (int i = 0; i < CELL_COUNT; i++) {
     if (!cells[i].active)
       continue;
 
-    if (cells[i].roundSampleCount < MIN_SAMPLES_PER_CELL)
+    if (cells[i].roundSampleCount < GetMinimumSamplesPerCell())
       return 0;
   }
 
@@ -148,6 +161,8 @@ static void ZoomIntoLastCell(void) {
   regionUpperX = cells[winner].upperX;
   regionLowerY = cells[winner].lowerY;
   regionUpperY = cells[winner].upperY;
+
+  zoomLevel++;
 
   CreateGrid(regionLowerX, regionUpperX, regionLowerY, regionUpperY);
 }
@@ -223,6 +238,7 @@ static void RandomHalvingInit(const TestProblem *problem) {
 
   pointCount = 0;
   evaluations = 0;
+  zoomLevel = 0;
 
   bestX = 0.0;
   bestY = 0.0;
