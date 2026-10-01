@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "RandomHalvingInteractive.h"
 #include "ScoutHQInteractive.h"
 #include "optimizers.h"
 #include "problems.h"

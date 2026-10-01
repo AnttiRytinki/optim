@@ -6,11 +6,10 @@ gcc -Wall -Wextra -O2 \
     opt_bench_interactive.c \
     optimizers.c \
     problems.c \
-    ExploreExploitInteractive.c \
-    RandomSearchInteractive.c \
     HillClimbInteractive.c \
     DifferentialEvolutionInteractive.c \
     ScoutHQInteractive.c \
+    RandomHalvingInteractive.c \
     -lm \
     -o opt_bench || exit 1
 
