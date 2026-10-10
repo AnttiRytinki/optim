@@ -1,3 +1,4 @@
+
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -10,9 +11,20 @@
 
 #define PI 3.14159265358979323846
 #define DIRECTION_COUNT 8
+#define MAX_TESTED_POINTS 100000
+
+#define SCOUT_AGENT_TYPE 5
+#define SCOUT_ACTIVE_TYPE 6
+#define SCOUT_INACTIVE_TYPE 7
+#define SCOUT_TESTED_TYPE 8
 
 static const double RelativeAngles[DIRECTION_COUNT] = {
     0.0, 180.0, 90.0, 270.0, 45.0, 135.0, 225.0, 315.0};
+
+typedef struct {
+  double x;
+  double y;
+} TestedPoint;
 
 static const TestProblem *currentProblem;
 
@@ -31,6 +43,10 @@ static double bestValue;
 
 static int evaluations;
 
+static TestedPoint testedPoints[MAX_TESTED_POINTS];
+static int testedPointCount;
+static int testedDirections[DIRECTION_COUNT];
+
 static double NormalizeAngle(double angle) {
   angle = fmod(angle, 2.0 * PI);
 
@@ -38,6 +54,11 @@ static double NormalizeAngle(double angle) {
     angle += 2.0 * PI;
 
   return angle;
+}
+
+static void ResetTestedDirections(void) {
+  for (int i = 0; i < DIRECTION_COUNT; i++)
+    testedDirections[i] = 0;
 }
 
 static void EvaluatePoint(double x, double y, double *value) {
@@ -51,6 +72,12 @@ static void EvaluatePoint(double x, double y, double *value) {
 
   *value = currentProblem->function(position, currentProblem->dim);
   evaluations++;
+
+  if (testedPointCount < MAX_TESTED_POINTS) {
+    testedPoints[testedPointCount].x = x;
+    testedPoints[testedPointCount].y = y;
+    testedPointCount++;
+  }
 
   if (*value < bestValue) {
     bestValue = *value;
@@ -66,6 +93,8 @@ static void RestartAgent(void) {
   agentAngle = RandomDouble(0.0, 2.0 * PI);
   stepSize = initialStep;
 
+  ResetTestedDirections();
+
   EvaluatePoint(agentX, agentY, &agentValue);
 }
 
@@ -80,13 +109,16 @@ static void ScoutsBInit(const TestProblem *problem) {
   bestY = 0.0;
   evaluations = 0;
 
+  testedPointCount = 0;
+  ResetTestedDirections();
+
   RestartAgent();
 }
 
-static int TestDirection(double relativeAngle, double *candidateX,
-                         double *candidateY, double *candidateValue,
-                         double *candidateAngle) {
-  double angle = NormalizeAngle(agentAngle + relativeAngle * PI / 180.0);
+static int TestDirection(int direction, double *candidateX, double *candidateY,
+                         double *candidateValue, double *candidateAngle) {
+  double angle =
+      NormalizeAngle(agentAngle + RelativeAngles[direction] * PI / 180.0);
 
   double x = agentX + stepSize * cos(angle);
   double y = agentY + stepSize * sin(angle);
@@ -98,6 +130,7 @@ static int TestDirection(double relativeAngle, double *candidateX,
   double value;
 
   EvaluatePoint(x, y, &value);
+  testedDirections[direction] = 1;
 
   if (value >= *candidateValue)
     return 0;
@@ -116,19 +149,21 @@ static void ScoutsBStep(void) {
   double candidateValue = agentValue;
   double candidateAngle = agentAngle;
 
+  ResetTestedDirections();
+
   // Priority 1: straight ahead
-  if (TestDirection(RelativeAngles[0], &candidateX, &candidateY,
-                    &candidateValue, &candidateAngle))
+  if (TestDirection(0, &candidateX, &candidateY, &candidateValue,
+                    &candidateAngle))
     goto MoveAgent;
 
   // Priority 2: turn around
-  if (TestDirection(RelativeAngles[1], &candidateX, &candidateY,
-                    &candidateValue, &candidateAngle))
+  if (TestDirection(1, &candidateX, &candidateY, &candidateValue,
+                    &candidateAngle))
     goto MoveAgent;
 
   // Priority 3: perpendicular directions
   for (int i = 2; i < 4; i++)
-    TestDirection(RelativeAngles[i], &candidateX, &candidateY, &candidateValue,
+    TestDirection(i, &candidateX, &candidateY, &candidateValue,
                   &candidateAngle);
 
   if (candidateValue < agentValue)
@@ -136,18 +171,19 @@ static void ScoutsBStep(void) {
 
   // Priority 4: diagonal directions
   for (int i = 4; i < DIRECTION_COUNT; i++)
-    TestDirection(RelativeAngles[i], &candidateX, &candidateY, &candidateValue,
+    TestDirection(i, &candidateX, &candidateY, &candidateValue,
                   &candidateAngle);
 
   if (candidateValue < agentValue)
     goto MoveAgent;
 
-  // No improvement: reduce step size, preserve heading
+  // No improvement: halve step size, preserve heading
   stepSize *= 0.5;
 
   if (stepSize < minimumStep)
     RestartAgent();
 
+  ResetTestedDirections();
   return;
 
 MoveAgent:
@@ -155,17 +191,43 @@ MoveAgent:
   agentY = candidateY;
   agentValue = candidateValue;
   agentAngle = candidateAngle;
+
+  ResetTestedDirections();
 }
 
-static int ScoutsBGetPointCount(void) { return 1; }
+static int ScoutsBGetPointCount(void) {
+  return testedPointCount + 1 + DIRECTION_COUNT;
+}
 
 static void ScoutsBGetPoint(int index, double *x, double *y, int *type) {
-  if (index != 0)
+  if (index < 0 || index >= ScoutsBGetPointCount())
     return;
 
-  *x = agentX;
-  *y = agentY;
-  *type = 0;
+  if (index < testedPointCount) {
+    *x = testedPoints[index].x;
+    *y = testedPoints[index].y;
+    *type = SCOUT_TESTED_TYPE;
+    return;
+  }
+
+  index -= testedPointCount;
+
+  if (index == 0) {
+    *x = agentX;
+    *y = agentY;
+    *type = SCOUT_AGENT_TYPE;
+    return;
+  }
+
+  int direction = index - 1;
+
+  double angle =
+      NormalizeAngle(agentAngle + RelativeAngles[direction] * PI / 180.0);
+
+  *x = agentX + stepSize * cos(angle);
+  *y = agentY + stepSize * sin(angle);
+
+  *type = testedDirections[direction] ? SCOUT_INACTIVE_TYPE : SCOUT_ACTIVE_TYPE;
 }
 
 static void ScoutsBGetBest(double *x, double *y, double *value, int *count) {
