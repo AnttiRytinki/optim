@@ -16,6 +16,6 @@ double RandomDouble(double min, double max) {
 
 InteractiveOptimizer *Optimizers[] = {
     &HillClimbOptimizer, &DifferentialEvolutionOptimizer, &ScoutHQOptimizer,
-    &RandomHalvingOptimizer};
+    &RandomHalvingOptimizer, &ScoutsAOptimizer};
 
 int OptimizerCount = sizeof(Optimizers) / sizeof(Optimizers[0]);
