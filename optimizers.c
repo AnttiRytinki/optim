@@ -10,7 +10,6 @@ extern InteractiveOptimizer ScoutHQOptimizer;
 extern InteractiveOptimizer RandomHalvingOptimizer;
 extern InteractiveOptimizer ScoutsAOptimizer;
 extern InteractiveOptimizer ScoutsBOptimizer;
-extern InteractiveOptimizer ScoutsCOptimizer;
 extern InteractiveOptimizer NelderMeadOptimizer;
 extern InteractiveOptimizer ScoutsDOptimizer;
 
@@ -22,7 +21,6 @@ InteractiveOptimizer *Optimizers[] = {
     &HillClimbOptimizer,  &DifferentialEvolutionOptimizer,
     &ScoutHQOptimizer,    &RandomHalvingOptimizer,
     &ScoutsAOptimizer,    &ScoutsBOptimizer,
-    &NelderMeadOptimizer, &ScoutsCOptimizer,
-    &ScoutsDOptimizer};
+    &NelderMeadOptimizer, &ScoutsDOptimizer};
 
 int OptimizerCount = sizeof(Optimizers) / sizeof(Optimizers[0]);

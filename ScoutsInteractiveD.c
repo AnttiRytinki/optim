@@ -1,23 +1,17 @@
-
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
 
 #include "ScoutsInteractiveD.h"
-#include "optimizers.h"
 
+#define ANTI_AGENT_COUNT 5
 #define INITIAL_STEP_FRACTION 0.02
 #define MIN_STEP_FRACTION 0.0000001
-#define ESCAPE_STEPS 3
-
+#define TERRITORY_RADIUS_FRACTION 0.01
+#define MAX_EVALUATIONS 100000
+#define SPAWN_ATTEMPTS 1000
 #define PI 3.14159265358979323846
 #define DIRECTION_COUNT 8
-#define MAX_TESTED_POINTS 100000
-
-#define SCOUT_AGENT_TYPE 5
-#define SCOUT_ACTIVE_TYPE 6
-#define SCOUT_INACTIVE_TYPE 7
-#define SCOUT_TESTED_TYPE 8
 
 static const double RelativeAngles[DIRECTION_COUNT] = {
     0.0, 180.0, 90.0, 270.0, 45.0, 135.0, 225.0, 315.0};
@@ -25,238 +19,232 @@ static const double RelativeAngles[DIRECTION_COUNT] = {
 typedef struct {
   double x;
   double y;
-} TestedPoint;
+} Point;
+
+typedef struct {
+  double x;
+  double y;
+  double value;
+  double angle;
+  double step;
+  int anti;
+} Agent;
 
 static const TestProblem *currentProblem;
-
-static double agentX;
-static double agentY;
-static double agentValue;
-static double agentAngle;
-
-static double stepSize;
+static Agent agents[ANTI_AGENT_COUNT + 1];
+static int nextAgent;
+static int evaluations;
 static double initialStep;
 static double minimumStep;
-
+static double territoryRadiusSquared;
 static double bestX;
 static double bestY;
 static double bestValue;
-
-static int evaluations;
-
-static int escapeMode;
-static int escapeStepsRemaining;
-
-static TestedPoint testedPoints[MAX_TESTED_POINTS];
-static int testedPointCount;
-static int testedDirections[DIRECTION_COUNT];
+static Point history[MAX_EVALUATIONS];
+static int historyCount;
+static Point territory[MAX_EVALUATIONS];
+static int territoryCount;
 
 static double NormalizeAngle(double angle) {
   angle = fmod(angle, 2.0 * PI);
-
   if (angle < 0.0)
     angle += 2.0 * PI;
-
   return angle;
 }
 
-static void ResetTestedDirections(void) {
-  for (int i = 0; i < DIRECTION_COUNT; i++)
-    testedDirections[i] = 0;
+static double DistanceSquared(double x1, double y1, double x2, double y2) {
+  double dx = x1 - x2;
+  double dy = y1 - y2;
+  return dx * dx + dy * dy;
 }
 
-static void EvaluatePoint(double x, double y, double *value) {
-  double position[MAX_DIM] = {0.0};
+static double NearestTerritoryDistanceSquared(double x, double y) {
+  double nearest = DBL_MAX;
+  for (int i = 0; i < territoryCount; i++) {
+    double distance = DistanceSquared(x, y, territory[i].x, territory[i].y);
+    if (distance < nearest)
+      nearest = distance;
+  }
+  return nearest;
+}
 
+static void ChooseNormalSpawn(double *x, double *y) {
+  double fallbackX = currentProblem->lower;
+  double fallbackY = currentProblem->lower;
+  double fallbackDistance = -1.0;
+
+  for (int attempt = 0; attempt < SPAWN_ATTEMPTS; attempt++) {
+    double px = RandomDouble(currentProblem->lower, currentProblem->upper);
+    double py = RandomDouble(currentProblem->lower, currentProblem->upper);
+    double distance = NearestTerritoryDistanceSquared(px, py);
+
+    if (distance > fallbackDistance) {
+      fallbackDistance = distance;
+      fallbackX = px;
+      fallbackY = py;
+    }
+
+    if (distance >= territoryRadiusSquared) {
+      *x = px;
+      *y = py;
+      return;
+    }
+  }
+
+  // Only used if no permitted point was found in the attempt budget.
+  *x = fallbackX;
+  *y = fallbackY;
+}
+
+static double Evaluate(double x, double y, int anti) {
+  double position[MAX_DIM] = {0.0};
   position[0] = x;
   position[1] = y;
-
   for (int d = 2; d < currentProblem->dim; d++)
     position[d] = RandomDouble(currentProblem->lower, currentProblem->upper);
 
-  *value = currentProblem->function(position, currentProblem->dim);
+  double value = currentProblem->function(position, currentProblem->dim);
   evaluations++;
 
-  if (testedPointCount < MAX_TESTED_POINTS) {
-    testedPoints[testedPointCount].x = x;
-    testedPoints[testedPointCount].y = y;
-    testedPointCount++;
+  if (historyCount < MAX_EVALUATIONS) {
+    history[historyCount].x = x;
+    history[historyCount].y = y;
+    historyCount++;
   }
 
-  if (*value < bestValue) {
-    bestValue = *value;
+  if (anti && territoryCount < MAX_EVALUATIONS) {
+    territory[territoryCount].x = x;
+    territory[territoryCount].y = y;
+    territoryCount++;
+  }
+
+  if (value < bestValue) {
+    bestValue = value;
     bestX = x;
     bestY = y;
   }
+  return value;
 }
 
-static void ScoutsDInit(const TestProblem *problem) {
-  currentProblem = problem;
+static void RestartAgent(Agent *agent) {
+  if (agent->anti) {
+    agent->x = RandomDouble(currentProblem->lower, currentProblem->upper);
+    agent->y = RandomDouble(currentProblem->lower, currentProblem->upper);
+  } else
+    ChooseNormalSpawn(&agent->x, &agent->y);
 
-  initialStep = (problem->upper - problem->lower) * INITIAL_STEP_FRACTION;
-  minimumStep = (problem->upper - problem->lower) * MIN_STEP_FRACTION;
-
-  bestValue = DBL_MAX;
-  bestX = 0.0;
-  bestY = 0.0;
-  evaluations = 0;
-
-  testedPointCount = 0;
-  ResetTestedDirections();
-
-  escapeMode = 0;
-  escapeStepsRemaining = 0;
-
-  agentX = RandomDouble(problem->lower, problem->upper);
-  agentY = RandomDouble(problem->lower, problem->upper);
-  agentAngle = RandomDouble(0.0, 2.0 * PI);
-
-  stepSize = initialStep;
-
-  EvaluatePoint(agentX, agentY, &agentValue);
+  agent->angle = RandomDouble(0.0, 2.0 * PI);
+  agent->step = initialStep;
+  agent->value = Evaluate(agent->x, agent->y, agent->anti);
 }
 
-static int IsImprovement(double value, double reference) {
-  if (escapeMode)
-    return value > reference;
-
-  return value < reference;
+static int Better(const Agent *agent, double candidate, double reference) {
+  if (agent->anti)
+    return candidate > reference;
+  return candidate < reference;
 }
 
-static int TestDirection(int direction, double *candidateX, double *candidateY,
-                         double *candidateValue, double *candidateAngle) {
+static int TryDirection(Agent *agent, int direction, double *chosenX,
+                        double *chosenY, double *chosenValue,
+                        double *chosenAngle) {
   double angle =
-      NormalizeAngle(agentAngle + RelativeAngles[direction] * PI / 180.0);
-
-  double x = agentX + stepSize * cos(angle);
-  double y = agentY + stepSize * sin(angle);
+      NormalizeAngle(agent->angle + RelativeAngles[direction] * PI / 180.0);
+  double x = agent->x + agent->step * cos(angle);
+  double y = agent->y + agent->step * sin(angle);
 
   if (x < currentProblem->lower || x > currentProblem->upper ||
       y < currentProblem->lower || y > currentProblem->upper)
     return 0;
 
-  double value;
-
-  EvaluatePoint(x, y, &value);
-  testedDirections[direction] = 1;
-
-  if (!IsImprovement(value, *candidateValue))
+  double value = Evaluate(x, y, agent->anti);
+  if (!Better(agent, value, *chosenValue))
     return 0;
 
-  *candidateX = x;
-  *candidateY = y;
-  *candidateValue = value;
-  *candidateAngle = angle;
-
+  *chosenX = x;
+  *chosenY = y;
+  *chosenValue = value;
+  *chosenAngle = angle;
   return 1;
 }
 
-static void StartEscape(void) {
-  escapeMode = 1;
-  escapeStepsRemaining = ESCAPE_STEPS;
-  stepSize = initialStep;
+static void StepAgent(Agent *agent) {
+  double x = agent->x;
+  double y = agent->y;
+  double value = agent->value;
+  double angle = agent->angle;
+
+  if (TryDirection(agent, 0, &x, &y, &value, &angle))
+    goto Move;
+  if (TryDirection(agent, 1, &x, &y, &value, &angle))
+    goto Move;
+
+  for (int i = 2; i < 4; i++)
+    TryDirection(agent, i, &x, &y, &value, &angle);
+  if (Better(agent, value, agent->value))
+    goto Move;
+
+  for (int i = 4; i < DIRECTION_COUNT; i++)
+    TryDirection(agent, i, &x, &y, &value, &angle);
+  if (Better(agent, value, agent->value))
+    goto Move;
+
+  agent->step *= 0.5;
+  if (agent->step < minimumStep)
+    RestartAgent(agent);
+  return;
+
+Move:
+  agent->x = x;
+  agent->y = y;
+  agent->value = value;
+  agent->angle = angle;
 }
 
-static void FinishEscapeStep(void) {
-  if (!escapeMode)
-    return;
+static void ScoutsDInit(const TestProblem *problem) {
+  currentProblem = problem;
+  initialStep = (problem->upper - problem->lower) * INITIAL_STEP_FRACTION;
+  minimumStep = (problem->upper - problem->lower) * MIN_STEP_FRACTION;
+  double radius = (problem->upper - problem->lower) * TERRITORY_RADIUS_FRACTION;
+  territoryRadiusSquared = radius * radius;
 
-  escapeStepsRemaining--;
+  evaluations = 0;
+  historyCount = 0;
+  territoryCount = 0;
+  nextAgent = 0;
+  bestValue = DBL_MAX;
+  bestX = 0.0;
+  bestY = 0.0;
 
-  if (escapeStepsRemaining <= 0) {
-    escapeMode = 0;
-    escapeStepsRemaining = 0;
-    stepSize = initialStep;
+  for (int i = 0; i <= ANTI_AGENT_COUNT; i++) {
+    agents[i].anti = (i != 0);
+    RestartAgent(&agents[i]);
   }
 }
 
 static void ScoutsDStep(void) {
-  double candidateX = agentX;
-  double candidateY = agentY;
-  double candidateValue = agentValue;
-  double candidateAngle = agentAngle;
-
-  ResetTestedDirections();
-
-  // Priority 1: straight ahead
-  if (TestDirection(0, &candidateX, &candidateY, &candidateValue,
-                    &candidateAngle))
-    goto MoveAgent;
-
-  // Priority 2: turn around
-  if (TestDirection(1, &candidateX, &candidateY, &candidateValue,
-                    &candidateAngle))
-    goto MoveAgent;
-
-  // Priority 3: perpendicular directions
-  for (int i = 2; i < 4; i++)
-    TestDirection(i, &candidateX, &candidateY, &candidateValue,
-                  &candidateAngle);
-
-  if (IsImprovement(candidateValue, agentValue))
-    goto MoveAgent;
-
-  // Priority 4: diagonal directions
-  for (int i = 4; i < DIRECTION_COUNT; i++)
-    TestDirection(i, &candidateX, &candidateY, &candidateValue,
-                  &candidateAngle);
-
-  if (IsImprovement(candidateValue, agentValue))
-    goto MoveAgent;
-
-  // No improvement in the current search direction.
-  stepSize *= 0.5;
-
-  if (!escapeMode && stepSize < minimumStep)
-    StartEscape();
-
-  FinishEscapeStep();
-  ResetTestedDirections();
-  return;
-
-MoveAgent:
-  agentX = candidateX;
-  agentY = candidateY;
-  agentValue = candidateValue;
-  agentAngle = candidateAngle;
-
-  FinishEscapeStep();
-  ResetTestedDirections();
+  StepAgent(&agents[nextAgent]);
+  nextAgent = (nextAgent + 1) % (ANTI_AGENT_COUNT + 1);
 }
 
 static int ScoutsDGetPointCount(void) {
-  return testedPointCount + 1 + DIRECTION_COUNT;
+  return historyCount + ANTI_AGENT_COUNT + 1;
 }
 
 static void ScoutsDGetPoint(int index, double *x, double *y, int *type) {
   if (index < 0 || index >= ScoutsDGetPointCount())
     return;
 
-  if (index < testedPointCount) {
-    *x = testedPoints[index].x;
-    *y = testedPoints[index].y;
-    *type = SCOUT_TESTED_TYPE;
+  if (index < historyCount) {
+    *x = history[index].x;
+    *y = history[index].y;
+    *type = 8;
     return;
   }
 
-  index -= testedPointCount;
-
-  if (index == 0) {
-    *x = agentX;
-    *y = agentY;
-    *type = SCOUT_AGENT_TYPE;
-    return;
-  }
-
-  int direction = index - 1;
-
-  double angle =
-      NormalizeAngle(agentAngle + RelativeAngles[direction] * PI / 180.0);
-
-  *x = agentX + stepSize * cos(angle);
-  *y = agentY + stepSize * sin(angle);
-
-  *type = testedDirections[direction] ? SCOUT_INACTIVE_TYPE : SCOUT_ACTIVE_TYPE;
+  Agent *agent = &agents[index - historyCount];
+  *x = agent->x;
+  *y = agent->y;
+  *type = agent->anti ? 6 : 5;
 }
 
 static void ScoutsDGetBest(double *x, double *y, double *value, int *count) {

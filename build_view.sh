@@ -9,7 +9,6 @@ gcc -Wall -Wextra -O2 \
     RandomHalvingInteractive.c \
     ScoutsInteractiveA.c \
     ScoutsInteractiveB.c \
-    ScoutsInteractiveC.c \
     ScoutsInteractiveD.c \
     NelderMeadInteractive.c \
     problems.c \
