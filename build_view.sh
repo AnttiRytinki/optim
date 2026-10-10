@@ -7,6 +7,8 @@ gcc -Wall -Wextra -O2 \
     DifferentialEvolutionInteractive.c \
     ScoutHQInteractive.c \
     RandomHalvingInteractive.c \
+    ScoutsInteractiveA.c \
+    ScoutsInteractiveB.c \
     problems.c \
     -lSDL2 -lm \
     -o opt_view || exit 1
