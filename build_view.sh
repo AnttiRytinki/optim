@@ -10,6 +10,7 @@ gcc -Wall -Wextra -O2 \
     ScoutsInteractiveA.c \
     ScoutsInteractiveB.c \
     ScoutsInteractiveC.c \
+    ScoutsInteractiveD.c \
     NelderMeadInteractive.c \
     problems.c \
     -lSDL2 -lm \

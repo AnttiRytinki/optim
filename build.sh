@@ -13,6 +13,7 @@ gcc -Wall -Wextra -O2 \
     ScoutsInteractiveA.c \
     ScoutsInteractiveB.c \
     ScoutsInteractiveC.c \
+    ScoutsInteractiveD.c \
     NelderMeadInteractive.c \
     -lm \
     -o opt_bench || exit 1
