@@ -10,6 +10,7 @@ gcc -Wall -Wextra -O2 \
     DifferentialEvolutionInteractive.c \
     ScoutHQInteractive.c \
     RandomHalvingInteractive.c \
+    ScoutsInteractiveA.c \
     -lm \
     -o opt_bench || exit 1
 

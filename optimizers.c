@@ -8,6 +8,7 @@ extern InteractiveOptimizer HillClimbOptimizer;
 extern InteractiveOptimizer DifferentialEvolutionOptimizer;
 extern InteractiveOptimizer ScoutHQOptimizer;
 extern InteractiveOptimizer RandomHalvingOptimizer;
+extern InteractiveOptimizer ScoutsAOptimizer;
 
 double RandomDouble(double min, double max) {
   return min + (max - min) * ((double)rand() / (double)RAND_MAX);
