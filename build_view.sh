@@ -9,6 +9,7 @@ gcc -Wall -Wextra -O2 \
     RandomHalvingInteractive.c \
     ScoutsInteractiveA.c \
     ScoutsInteractiveB.c \
+    NelderMeadInteractive.c \
     problems.c \
     -lSDL2 -lm \
     -o opt_view || exit 1
