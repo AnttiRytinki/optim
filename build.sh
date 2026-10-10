@@ -11,6 +11,7 @@ gcc -Wall -Wextra -O2 \
     ScoutHQInteractive.c \
     RandomHalvingInteractive.c \
     ScoutsInteractiveA.c \
+    ScoutsInteractiveB.c \
     -lm \
     -o opt_bench || exit 1
 
