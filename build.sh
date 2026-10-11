@@ -17,6 +17,7 @@ gcc -Wall -Wextra -O2 \
     TabuSearchInteractive.c \
     BasinHoppingInteractive.c \
     ScoutsInteractiveE.c \
+    ScoutsInteractiveF.c \
     -lm \
     -o opt_bench || exit 1
 
