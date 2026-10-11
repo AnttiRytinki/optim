@@ -18,6 +18,7 @@ gcc -Wall -Wextra -O2 \
     BasinHoppingInteractive.c \
     ScoutsInteractiveE.c \
     ScoutsInteractiveF.c \
+    EchoInteractive.c \
     -lm \
     -o opt_bench || exit 1
 

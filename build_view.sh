@@ -15,6 +15,7 @@ gcc -Wall -Wextra -O2 \
     TabuSearchInteractive.c \
     ScoutsInteractiveE.c \
     ScoutsInteractiveF.c \
+    EchoInteractive.c \
     problems.c \
     -lSDL2 -lm \
     -o opt_view || exit 1
