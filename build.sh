@@ -14,6 +14,8 @@ gcc -Wall -Wextra -O2 \
     ScoutsInteractiveB.c \
     ScoutsInteractiveD.c \
     NelderMeadInteractive.c \
+    TabuSearchInteractive.c \
+    BasinHoppingInteractive.c \
     -lm \
     -o opt_bench || exit 1
 

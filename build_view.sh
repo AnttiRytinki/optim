@@ -11,6 +11,8 @@ gcc -Wall -Wextra -O2 \
     ScoutsInteractiveB.c \
     ScoutsInteractiveD.c \
     NelderMeadInteractive.c \
+    BasinHoppingInteractive.c \
+    TabuSearchInteractive.c \
     problems.c \
     -lSDL2 -lm \
     -o opt_view || exit 1
