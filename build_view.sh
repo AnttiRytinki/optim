@@ -16,6 +16,7 @@ gcc -Wall -Wextra -O2 \
     ScoutsInteractiveE.c \
     ScoutsInteractiveF.c \
     ScoutsInteractiveG.c \
+    ScoutsInteractiveH.c \
     problems.c \
     -lSDL2 -lm \
     -o opt_view || exit 1

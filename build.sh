@@ -19,6 +19,7 @@ gcc -Wall -Wextra -O2 \
     ScoutsInteractiveE.c \
     ScoutsInteractiveF.c \
     ScoutsInteractiveG.c \
+    ScoutsInteractiveH.c \
     -lm \
     -o opt_bench || exit 1
 
