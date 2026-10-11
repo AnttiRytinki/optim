@@ -14,6 +14,7 @@ extern InteractiveOptimizer NelderMeadOptimizer;
 extern InteractiveOptimizer ScoutsDOptimizer;
 extern InteractiveOptimizer BasinHoppingOptimizer;
 extern InteractiveOptimizer TabuSearchOptimizer;
+extern InteractiveOptimizer ScoutsEOptimizer;
 
 double RandomDouble(double min, double max) {
   return min + (max - min) * ((double)rand() / (double)RAND_MAX);
@@ -24,6 +25,7 @@ InteractiveOptimizer *Optimizers[] = {
     &ScoutHQOptimizer,      &RandomHalvingOptimizer,
     &ScoutsAOptimizer,      &ScoutsBOptimizer,
     &NelderMeadOptimizer,   &ScoutsDOptimizer,
-    &BasinHoppingOptimizer, &TabuSearchOptimizer};
+    &BasinHoppingOptimizer, &TabuSearchOptimizer,
+    &ScoutsEOptimizer};
 
 int OptimizerCount = sizeof(Optimizers) / sizeof(Optimizers[0]);
