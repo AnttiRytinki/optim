@@ -1,0 +1,14 @@
+# Compiled binaries
+opt_bench_interactive
+opt_view
+History/opt_bench
+
+# Generated benchmark runs
+History/Optim-*
+
+# Object files
+*.o
+
+# Editor/temporary files
+*~
+*.swp
