@@ -1,0 +1,8 @@
+#ifndef SCOUTS_INTERACTIVE_F_H
+#define SCOUTS_INTERACTIVE_F_H
+
+#include "optimizers.h"
+
+extern InteractiveOptimizer ScoutsFOptimizer;
+
+#endif

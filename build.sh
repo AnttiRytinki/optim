@@ -33,7 +33,7 @@ mkdir -p benchmark_results
 RESULTS_FILE="benchmark_results/benchmark_results_$TIMESTAMP.txt"
 
 # Run benchmark and save output
-./opt_bench "$@" | tee "$RESULTS_FILE"
+taskset -c 2 ./opt_bench "$@" | tee "$RESULTS_FILE"
 BENCHMARK_STATUS=${PIPESTATUS[0]}
 
 if [ "$BENCHMARK_STATUS" -ne 0 ]
