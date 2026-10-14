@@ -23,7 +23,15 @@ double RandomDouble(double min, double max) {
   return min + (max - min) * ((double)rand() / (double)RAND_MAX);
 }
 
+#ifdef OPTIM_WITH_NOMAD
+/* Batch-only entry: the benchmark dispatches through nomad_adapter.h. */
+InteractiveOptimizer NomadOptimizer = {"NOMAD", NULL, NULL, NULL, NULL, NULL};
+#endif
+
 InteractiveOptimizer *Optimizers[] = {
+#ifdef OPTIM_WITH_NOMAD
+    &NomadOptimizer,
+#endif
     &HillClimbOptimizer,    &DifferentialEvolutionOptimizer,
     &ScoutHQOptimizer,      &RandomHalvingOptimizer,
     &ScoutsAOptimizer,      &ScoutsBOptimizer,

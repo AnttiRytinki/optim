@@ -1,0 +1,4 @@
+CompileFlags:
+  Add:
+    - -IExternal/nomad/src
+    - -std=c++17

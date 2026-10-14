@@ -1,0 +1,208 @@
+Evaluation benchmark
+Runs per algorithm: 1
+Base seed: 20261014; paired per-run seeds and ScoutsD/NOMAD starts
+Exact objective-call checkpoints; initialization included
+Metric: average best value reached
+
+Sphere
+
+Algorithm                         100          300         1000         3000        10000        30000       100000
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+  NOMAD actual calls: min=472 mean=472.0 max=472 (includes any Step overshoot)
+  Success by checkpoint: 100=100.0% 300=100.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+NOMAD                     3.37872e-13  3.98852e-22  1.30000e-26  1.30000e-26  1.30000e-26  1.30000e-26  1.30000e-26
+  ScoutsD actual calls: min=100002 mean=100002.0 max=100002 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=100.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+ScoutsD                   2.71781e-05  4.58173e-13  1.73594e-13  9.69536e-14  1.26617e-14  6.03878e-15  5.86184e-16
+
+Final statistics at 100000 evaluations
+Success threshold: |value - optimum| < 1.0e-06
+
+Algorithm                        Mean       Median         Best        Worst    Success
+------------------------ ------------ ------------ ------------ ------------ ----------
+NOMAD                     1.30000e-26  1.30000e-26  1.30000e-26  1.30000e-26     100.0%
+ScoutsD                   5.86184e-16  5.86184e-16  5.86184e-16  5.86184e-16     100.0%
+
+Rastrigin
+
+Algorithm                         100          300         1000         3000        10000        30000       100000
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+  NOMAD actual calls: min=245 mean=245.0 max=245 (includes any Step overshoot)
+  Success by checkpoint: 100=100.0% 300=100.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+NOMAD                     5.48704e-07  0.00000e+00  0.00000e+00  0.00000e+00  0.00000e+00  0.00000e+00  0.00000e+00
+  ScoutsD actual calls: min=100006 mean=100006.0 max=100006 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=0.0% 1000=0.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+ScoutsD                   1.69143e+01  9.95314e+00  9.98554e-01  2.92690e-11  2.92690e-11  2.92690e-11  1.00897e-12
+
+Final statistics at 100000 evaluations
+Success threshold: |value - optimum| < 1.0e-06
+
+Algorithm                        Mean       Median         Best        Worst    Success
+------------------------ ------------ ------------ ------------ ------------ ----------
+NOMAD                     0.00000e+00  0.00000e+00  0.00000e+00  0.00000e+00     100.0%
+ScoutsD                   1.00897e-12  1.00897e-12  1.00897e-12  1.00897e-12     100.0%
+
+Rosenbrock
+
+Algorithm                         100          300         1000         3000        10000        30000       100000
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+  NOMAD actual calls: min=573 mean=573.0 max=573 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=100.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+NOMAD                     1.00641e-03  5.82190e-19  1.08230e-23  1.08230e-23  1.08230e-23  1.08230e-23  1.08230e-23
+  ScoutsD actual calls: min=100002 mean=100002.0 max=100002 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=0.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+ScoutsD                   2.92238e+00  2.09706e-01  1.32172e-11  8.51916e-12  8.51916e-12  8.51916e-12  8.51916e-12
+
+Final statistics at 100000 evaluations
+Success threshold: |value - optimum| < 1.0e-06
+
+Algorithm                        Mean       Median         Best        Worst    Success
+------------------------ ------------ ------------ ------------ ------------ ----------
+NOMAD                     1.08230e-23  1.08230e-23  1.08230e-23  1.08230e-23     100.0%
+ScoutsD                   8.51916e-12  8.51916e-12  8.51916e-12  8.51916e-12     100.0%
+
+Ackley
+
+Algorithm                         100          300         1000         3000        10000        30000       100000
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+  NOMAD actual calls: min=446 mean=446.0 max=446 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=100.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+NOMAD                     6.54371e-04  2.72579e-10  1.99396e-13  1.99396e-13  1.99396e-13  1.99396e-13  1.99396e-13
+  ScoutsD actual calls: min=100006 mean=100006.0 max=100006 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=0.0% 1000=0.0% 3000=0.0% 10000=100.0% 30000=100.0% 100000=100.0%
+ScoutsD                   6.55965e+00  5.38270e+00  2.69693e-01  1.41352e-06  7.86345e-07  7.86345e-07  3.14112e-07
+
+Final statistics at 100000 evaluations
+Success threshold: |value - optimum| < 1.0e-06
+
+Algorithm                        Mean       Median         Best        Worst    Success
+------------------------ ------------ ------------ ------------ ------------ ----------
+NOMAD                     1.99396e-13  1.99396e-13  1.99396e-13  1.99396e-13     100.0%
+ScoutsD                   3.14112e-07  3.14112e-07  3.14112e-07  3.14112e-07     100.0%
+
+Himmelblau
+
+Algorithm                         100          300         1000         3000        10000        30000       100000
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+  NOMAD actual calls: min=233 mean=233.0 max=233 (includes any Step overshoot)
+  Success by checkpoint: 100=100.0% 300=100.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+NOMAD                     5.94367e-10  4.81922e-20  4.81922e-20  4.81922e-20  4.81922e-20  4.81922e-20  4.81922e-20
+  ScoutsD actual calls: min=100007 mean=100007.0 max=100007 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=100.0% 1000=100.0% 3000=100.0% 10000=100.0% 30000=100.0% 100000=100.0%
+ScoutsD                   2.02833e-04  4.92651e-12  3.25764e-12  3.08318e-13  2.78228e-13  2.78228e-13  6.12690e-14
+
+Final statistics at 100000 evaluations
+Success threshold: |value - optimum| < 1.0e-06
+
+Algorithm                        Mean       Median         Best        Worst    Success
+------------------------ ------------ ------------ ------------ ------------ ----------
+NOMAD                     4.81922e-20  4.81922e-20  4.81922e-20  4.81922e-20     100.0%
+ScoutsD                   6.12690e-14  6.12690e-14  6.12690e-14  6.12690e-14     100.0%
+
+Griewank
+
+Algorithm                         100          300         1000         3000        10000        30000       100000
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+  NOMAD actual calls: min=279 mean=279.0 max=279 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=0.0% 1000=0.0% 3000=0.0% 10000=0.0% 30000=0.0% 100000=0.0%
+NOMAD                     4.68702e-02  4.68350e-02  4.68350e-02  4.68350e-02  4.68350e-02  4.68350e-02  4.68350e-02
+  ScoutsD actual calls: min=100001 mean=100001.0 max=100001 (includes any Step overshoot)
+  Success by checkpoint: 100=0.0% 300=0.0% 1000=0.0% 3000=0.0% 10000=100.0% 30000=100.0% 100000=100.0%
+ScoutsD                   6.08303e-01  5.99257e-01  9.77237e-02  5.91782e-02  9.18717e-11  9.18717e-11  9.18717e-11
+
+Final statistics at 100000 evaluations
+Success threshold: |value - optimum| < 1.0e-06
+
+Algorithm                        Mean       Median         Best        Worst    Success
+------------------------ ------------ ------------ ------------ ------------ ----------
+NOMAD                     4.68350e-02  4.68350e-02  4.68350e-02  4.68350e-02       0.0%
+ScoutsD                   9.18717e-11  9.18717e-11  9.18717e-11  9.18717e-11     100.0%
+
+
+Time benchmark
+Runs per algorithm: 20
+Metric: average best value reached
+Time checkpoints in milliseconds
+Median hit time is for successful runs only; N/A means no successes.
+Timing includes Init; samples use the last completed objective at each deadline.
+Eval/s counts completed evaluations within 300 ms, including Init.
+NOMAD runs to its evaluation limit; recorded timestamps select time results.
+
+Sphere
+
+Algorithm                        0.01         0.03         0.10         0.30         1.00         3.00        10.00        30.00       100.00       300.00
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+NOMAD                             inf          inf          inf          inf          inf          inf          inf          inf      0.32104   1.5828e-10
+ScoutsD                    4.7363e-07   3.3651e-13   1.0205e-13   4.1817e-14   1.0919e-14   4.4687e-15   7.3192e-16   3.5554e-16   9.3457e-17   3.6649e-17
+
+Time-to-convergence and throughput (1.0e-06 threshold)
+Algorithm                   Median hit (ms)      Success           Eval/s
+------------------------ ------------------ ------------ ----------------
+NOMAD                            233.108099       100.0%              315
+ScoutsD                            0.007660       100.0%         15467845
+
+Rastrigin
+
+Algorithm                        0.01         0.03         0.10         0.30         1.00         3.00        10.00        30.00       100.00       300.00
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+NOMAD                             inf          inf          inf          inf          inf          inf          inf          inf       20.011     0.013405
+ScoutsD                        14.726       9.1803       1.3432   5.3786e-11    4.604e-11   3.5131e-11   1.5475e-11   6.1527e-12   1.4603e-12   4.5413e-13
+
+Time-to-convergence and throughput (1.0e-06 threshold)
+Algorithm                   Median hit (ms)      Success           Eval/s
+------------------------ ------------------ ------------ ----------------
+NOMAD                            251.465715        45.0%              272
+ScoutsD                            0.115154       100.0%         11600132
+
+Rosenbrock
+
+Algorithm                        0.01         0.03         0.10         0.30         1.00         3.00        10.00        30.00       100.00       300.00
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+NOMAD                             inf          inf          inf          inf          inf          inf          inf          inf       14.921     0.015797
+ScoutsD                       0.33657     0.031997    0.0031388   9.5273e-05    1.288e-09    3.358e-10   9.9032e-12   5.7347e-12   8.2501e-13   8.8279e-14
+
+Time-to-convergence and throughput (1.0e-06 threshold)
+Algorithm                   Median hit (ms)      Success           Eval/s
+------------------------ ------------------ ------------ ----------------
+NOMAD                            262.828895         5.0%              328
+ScoutsD                            0.257388       100.0%         15733884
+
+Ackley
+
+Algorithm                        0.01         0.03         0.10         0.30         1.00         3.00        10.00        30.00       100.00       300.00
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+NOMAD                             inf          inf          inf          inf          inf          inf          inf          inf       4.6248    0.0045104
+ScoutsD                        8.2092       6.8225       2.4353   1.2618e-06   9.3371e-07   7.6715e-07   4.9071e-07   3.1471e-07   1.6088e-07   1.0462e-07
+
+Time-to-convergence and throughput (1.0e-06 threshold)
+Algorithm                   Median hit (ms)      Success           Eval/s
+------------------------ ------------------ ------------ ----------------
+NOMAD                            101.908846         5.0%              293
+ScoutsD                            0.340970       100.0%         10244146
+
+Himmelblau
+
+Algorithm                        0.01         0.03         0.10         0.30         1.00         3.00        10.00        30.00       100.00       300.00
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+NOMAD                             inf          inf          inf          inf          inf          inf          inf          inf       31.534     0.038462
+ScoutsD                    1.8256e-05   1.3028e-11   3.4051e-12   7.6184e-13   2.6375e-13   8.5835e-14   2.4076e-14   1.2056e-14   3.4359e-15   1.8151e-15
+
+Time-to-convergence and throughput (1.0e-06 threshold)
+Algorithm                   Median hit (ms)      Success           Eval/s
+------------------------ ------------------ ------------ ----------------
+NOMAD                            278.153071        35.0%              256
+ScoutsD                            0.010130       100.0%         15514419
+
+Griewank
+
+Algorithm                        0.01         0.03         0.10         0.30         1.00         3.00        10.00        30.00       100.00       300.00
+------------------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------ ------------
+NOMAD                             inf          inf          inf          inf          inf          inf          inf          inf       15.851      0.15583
+ScoutsD                        0.4559      0.36693       0.1244     0.048271     0.019477    0.0046845     0.001849   5.0535e-10   9.3281e-11   3.1713e-11
+
+Time-to-convergence and throughput (1.0e-06 threshold)
+Algorithm                   Median hit (ms)      Success           Eval/s
+------------------------ ------------------ ------------ ----------------
+NOMAD                                   N/A         0.0%              231
+ScoutsD                            3.573464       100.0%          9949820
+

@@ -2,6 +2,12 @@
 #include "ScoutHQInteractive.h"
 #include "optimizers.h"
 #include "problems.h"
+#ifdef OPTIM_WITH_NOMAD
+#include "nomad_adapter.h"
+extern InteractiveOptimizer NomadOptimizer;
+#endif
+#include <stdint.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,6 +39,26 @@ typedef struct {
   double evaluationsPerSecond;
   int successes;
 } TimeStatistics;
+
+static int runCount = RUNS;
+static int timeRunCount = TIME_RUNS;
+static int runOffset;
+static unsigned int baseSeed = 20261014u;
+static int problemIndex;
+static FILE *detailFile;
+static ObjectiveFunction measuredFunction;
+static double measuredBest, measuredStart, measuredHit, measuredOptimum;
+static double measuredValues[CHECKPOINT_COUNT];
+static double measuredTimes[TIME_CHECKPOINT_COUNT];
+static double measuredFirst[MAX_DIM];
+static int measuredCalls, measuredTimed, measuredTimeIndex, measuredWindowCalls;
+static int measuredSuccessEvaluation;
+
+static unsigned int RunSeed(int run)
+{
+    return (unsigned int)(((uint64_t)baseSeed + 1000003ull * problemIndex +
+                           7919ull * (run + runOffset)) % 2147483647ull);
+}
 
 static double GetTimeMs(void) {
   struct timespec ts;
@@ -76,35 +102,162 @@ static void CalculateFinalStatistics(double *values, int count,
   statistics->successPercent = 100.0 * successCount / count;
 }
 
+/* Instrumentation sees every actual call, including Init and batched Steps. */
+static double MeasuredObjective(const double *x, int dim)
+{
+    double value = measuredFunction(x, dim);
+    double elapsed = measuredTimed ? GetTimeMs() - measuredStart : 0.0;
+    if (measuredTimed)
+    {
+        while (measuredTimeIndex < TIME_CHECKPOINT_COUNT &&
+               elapsed > TimeCheckpointsMs[measuredTimeIndex])
+        {
+            measuredTimes[measuredTimeIndex++] = measuredBest;
+        }
+    }
+    measuredBest = fmin(measuredBest, value);
+    if (measuredCalls == 0)
+    {
+        memcpy(measuredFirst, x, (size_t)dim * sizeof(double));
+    }
+    ++measuredCalls;
+    if (!measuredSuccessEvaluation &&
+        fabs(measuredBest - measuredOptimum) < SUCCESS_THRESHOLD)
+    {
+        measuredSuccessEvaluation = measuredCalls;
+    }
+    if (measuredTimed)
+    {
+        if (elapsed <= TimeCheckpointsMs[TIME_CHECKPOINT_COUNT - 1])
+        {
+            measuredWindowCalls++;
+            if (isnan(measuredHit) && fabs(value - measuredOptimum) < SUCCESS_THRESHOLD)
+            {
+                measuredHit = elapsed;
+            }
+        }
+    }
+    else
+    {
+        for (int i = 0; i < CHECKPOINT_COUNT; ++i)
+        {
+            if (measuredCalls == Checkpoints[i])
+            {
+                measuredValues[i] = measuredBest;
+            }
+        }
+    }
+    return value;
+}
+
+static void BeginMeasurement(const TestProblem *problem, int timed)
+{
+    measuredFunction = problem->function;
+    measuredOptimum = problem->optimumValue;
+    measuredBest = INFINITY;
+    measuredHit = NAN;
+    measuredCalls = measuredWindowCalls = measuredTimeIndex = 0;
+    measuredSuccessEvaluation = 0;
+    measuredTimed = timed;
+    for (int i = 0; i < CHECKPOINT_COUNT; ++i)
+    {
+        measuredValues[i] = NAN;
+    }
+    measuredStart = GetTimeMs();
+}
+
+#ifdef OPTIM_WITH_NOMAD
+static NomadRun *RunNomad(const TestProblem *problem, int run, double *preparationMs)
+{
+    double begin = GetTimeMs();
+    unsigned int seed = RunSeed(run);
+    srand(seed);
+    double start[MAX_DIM] = {0};
+    for (int d = 0; d < problem->dim; ++d)
+    {
+        start[d] = RandomDouble(problem->lower, problem->upper);
+    }
+    if (preparationMs)
+    {
+        *preparationMs = GetTimeMs() - begin;
+    }
+    char error[1024];
+    NomadRun *result = NomadOptimize(problem, start, (int)seed,
+                                     Checkpoints[CHECKPOINT_COUNT - 1],
+                                     error, sizeof(error));
+    if (!result)
+    {
+        fprintf(stderr, "NOMAD %s run %d failed: %s\n", problem->name, run + 1, error);
+        exit(1);
+    }
+    return result;
+}
+#endif
+
 static void BenchmarkConvergence(InteractiveOptimizer *optimizer,
                                  const TestProblem *problem, double *averages,
                                  FinalStatistics *finalStatistics,
-                                 int diagnostics) {
-  double totals[CHECKPOINT_COUNT] = {0.0};
-  double finalValues[RUNS];
-
-  for (int run = 0; run < RUNS; run++) {
-    double bestX, bestY, value;
-    int evaluations;
-    optimizer->Init(problem);
-    optimizer->GetBest(&bestX, &bestY, &value, &evaluations);
-    int checkpointIndex = 0;
-
-    while (checkpointIndex < CHECKPOINT_COUNT) {
-      optimizer->Step();
-      optimizer->GetBest(&bestX, &bestY, &value, &evaluations);
-      while (checkpointIndex < CHECKPOINT_COUNT &&
-             evaluations >= Checkpoints[checkpointIndex]) {
-        totals[checkpointIndex] += value;
-        if (checkpointIndex == CHECKPOINT_COUNT - 1) {
-          finalValues[run] = value;
+                                 int diagnostics)
+{
+    double totals[CHECKPOINT_COUNT] = {0};
+    int successes[CHECKPOINT_COUNT] = {0};
+    double finalValues[runCount];
+    int minimumCount = INT_MAX, maximumCount = 0;
+    double totalCount = 0;
+    for (int run = 0; run < runCount; ++run)
+    {
+        double values[CHECKPOINT_COUNT];
+        int count;
+        double firstX, firstY;
+        int firstSuccess = 0;
+#ifdef OPTIM_WITH_NOMAD
+        if (optimizer == &NomadOptimizer)
+        {
+            NomadRun *result = RunNomad(problem, run, NULL);
+            count = (int)NomadEvaluationCount(result);
+            firstX = NomadEvaluationAt(result, 0)->point[0];
+            firstY = NomadEvaluationAt(result, 0)->point[1];
+            for (int i = 0; i < CHECKPOINT_COUNT; ++i)
+            {
+                values[i] = NomadAtBudget(result, Checkpoints[i])->bestValue;
+            }
+            for (size_t i = 0; i < NomadEvaluationCount(result); ++i)
+            {
+                if (fabs(NomadEvaluationAt(result, i)->bestValue - problem->optimumValue) < SUCCESS_THRESHOLD)
+                {
+                    firstSuccess = (int)i + 1;
+                    break;
+                }
+            }
+            NomadDestroy(result);
+        }
+        else
+#endif
+        {
+            srand(RunSeed(run));
+            TestProblem instrumented = *problem;
+            instrumented.function = MeasuredObjective;
+            BeginMeasurement(problem, 0);
+            optimizer->Init(&instrumented);
+            while (measuredCalls < Checkpoints[CHECKPOINT_COUNT - 1])
+            {
+                optimizer->Step();
+            }
+            double x, y, value;
+            int reported;
+            optimizer->GetBest(&x, &y, &value, &reported);
+            if (reported != measuredCalls)
+            {
+                fprintf(stderr, "%s evaluation count mismatch\n", optimizer->name);
+                exit(1);
+            }
           if (diagnostics && optimizer == &ScoutHQOptimizer &&
               problem == &GriewankProblem &&
-              fabs(value - problem->optimumValue) >= SUCCESS_THRESHOLD) {
+              fabs(measuredValues[CHECKPOINT_COUNT - 1] - problem->optimumValue) >= SUCCESS_THRESHOLD) {
             ScoutHQDiagnostics info;
             ScoutHQGetDiagnostics(&info);
             printf("\nScoutHQ Griewank miss %3d:\n", run + 1);
-            printf("  value=% .9e x=% .9e y=% .9e\n", value, bestX, bestY);
+            printf("  value=% .9e x=% .9e y=% .9e\n", value, x, y);
             printf("  minStep=% .9e refinements=%d coverage=%d\n",
                    info.minimumStep, info.refinementCount,
                    info.coverageComplete);
@@ -126,80 +279,125 @@ static void BenchmarkConvergence(InteractiveOptimizer *optimizer,
             }
             printf("\n");
           }
+            count = measuredCalls;
+            firstX = measuredFirst[0];
+            firstY = measuredFirst[1];
+            firstSuccess = measuredSuccessEvaluation <= Checkpoints[CHECKPOINT_COUNT - 1]
+                ? measuredSuccessEvaluation : 0;
+            for (int i = 0; i < CHECKPOINT_COUNT; ++i)
+            {
+                values[i] = measuredValues[i];
+            }
         }
-        checkpointIndex++;
-      }
+        minimumCount = count < minimumCount ? count : minimumCount;
+        maximumCount = count > maximumCount ? count : maximumCount;
+        totalCount += count;
+        for (int i = 0; i < CHECKPOINT_COUNT; ++i)
+        {
+            totals[i] += values[i];
+            successes[i] += fabs(values[i] - problem->optimumValue) < SUCCESS_THRESHOLD;
+            if (detailFile)
+            {
+                fprintf(detailFile, "%s,%s,%d,%u,%d,%.17g,%d,%.17g,%.17g,%d\n", problem->name,
+                        optimizer->name, run + runOffset + 1, RunSeed(run), Checkpoints[i], values[i], count, firstX, firstY, firstSuccess);
+            }
+        }
+        finalValues[run] = values[CHECKPOINT_COUNT - 1];
     }
-  }
-
-  for (int i = 0; i < CHECKPOINT_COUNT; i++)
-    averages[i] = totals[i] / RUNS;
-  CalculateFinalStatistics(finalValues, RUNS, problem, finalStatistics);
+    for (int i = 0; i < CHECKPOINT_COUNT; ++i)
+    {
+        averages[i] = totals[i] / runCount;
+    }
+    CalculateFinalStatistics(finalValues, runCount, problem, finalStatistics);
+    printf("  %s actual calls: min=%d mean=%.1f max=%d (includes any Step overshoot)\n",
+           optimizer->name, minimumCount, totalCount / runCount, maximumCount);
+    printf("  Success by checkpoint:");
+    for (int i = 0; i < CHECKPOINT_COUNT; ++i)
+    {
+        printf(" %d=%.1f%%", Checkpoints[i], 100.0 * successes[i] / runCount);
+    }
+    printf("\n");
 }
 
 static void BenchmarkTime(InteractiveOptimizer *optimizer,
                           const TestProblem *problem, double *averages,
-                          TimeStatistics *statistics) {
-  double totals[TIME_CHECKPOINT_COUNT] = {0.0};
-  double successTimes[TIME_RUNS];
-  int successes = 0;
-  double totalEvaluations = 0.0;
-  double totalElapsedMs = 0.0;
-
-  for (int run = 0; run < TIME_RUNS; run++) {
-    double bestX, bestY, value;
-    int evaluations;
-    optimizer->Init(problem);
-    optimizer->GetBest(&bestX, &bestY, &value, &evaluations);
-    int initialEvaluations = evaluations;
-    int successRecorded = 0;
-    int checkpointIndex = 0;
-    double startTime = GetTimeMs();
-
-    if (fabs(value - problem->optimumValue) < SUCCESS_THRESHOLD) {
-      successTimes[successes++] = 0.0;
-      successRecorded = 1;
+                          TimeStatistics *statistics)
+{
+    double totals[TIME_CHECKPOINT_COUNT] = {0};
+    double successTimes[timeRunCount];
+    int successes = 0;
+    double totalEvaluations = 0;
+    for (int run = 0; run < timeRunCount; ++run)
+    {
+#ifdef OPTIM_WITH_NOMAD
+        if (optimizer == &NomadOptimizer)
+        {
+            double preparationMs;
+            NomadRun *result = RunNomad(problem, run, &preparationMs);
+            for (int i = 0; i < TIME_CHECKPOINT_COUNT; ++i)
+            {
+                const NomadEvaluation *entry = NomadAtTime(result, TimeCheckpointsMs[i] - preparationMs);
+                totals[i] += entry ? entry->bestValue : INFINITY;
+            }
+            int hit = 0;
+            for (size_t i = 0; i < NomadEvaluationCount(result); ++i)
+            {
+                const NomadEvaluation *entry = NomadEvaluationAt(result, i);
+                if (entry->elapsedMs + preparationMs > TimeCheckpointsMs[TIME_CHECKPOINT_COUNT - 1])
+                {
+                    break;
+                }
+                totalEvaluations++;
+                if (!hit && fabs(entry->bestValue - problem->optimumValue) < SUCCESS_THRESHOLD)
+                {
+                    successTimes[successes++] = entry->elapsedMs + preparationMs;
+                    hit = 1;
+                }
+            }
+            NomadDestroy(result);
+        }
+        else
+#endif
+        {
+            srand(RunSeed(run));
+            TestProblem instrumented = *problem;
+            instrumented.function = MeasuredObjective;
+            BeginMeasurement(problem, 1);
+            optimizer->Init(&instrumented);
+            while (GetTimeMs() - measuredStart < TimeCheckpointsMs[TIME_CHECKPOINT_COUNT - 1])
+            {
+                optimizer->Step();
+            }
+            while (measuredTimeIndex < TIME_CHECKPOINT_COUNT)
+            {
+                measuredTimes[measuredTimeIndex++] = measuredBest;
+            }
+            for (int i = 0; i < TIME_CHECKPOINT_COUNT; ++i)
+            {
+                totals[i] += measuredTimes[i];
+            }
+            if (!isnan(measuredHit))
+            {
+                successTimes[successes++] = measuredHit;
+            }
+            totalEvaluations += measuredWindowCalls;
+        }
     }
-
-    while (checkpointIndex < TIME_CHECKPOINT_COUNT) {
-      optimizer->Step();
-      optimizer->GetBest(&bestX, &bestY, &value, &evaluations);
-      double elapsedMs = GetTimeMs() - startTime;
-
-      if (!successRecorded &&
-          fabs(value - problem->optimumValue) < SUCCESS_THRESHOLD) {
-        successTimes[successes++] = elapsedMs;
-        successRecorded = 1;
-      }
-
-      while (checkpointIndex < TIME_CHECKPOINT_COUNT &&
-             elapsedMs >= TimeCheckpointsMs[checkpointIndex]) {
-        totals[checkpointIndex] += value;
-        checkpointIndex++;
-      }
+    for (int i = 0; i < TIME_CHECKPOINT_COUNT; ++i)
+    {
+        averages[i] = totals[i] / timeRunCount;
     }
-
-    double elapsedMs = GetTimeMs() - startTime;
-    totalElapsedMs += elapsedMs;
-    totalEvaluations += (double)(evaluations - initialEvaluations);
-  }
-
-  for (int i = 0; i < TIME_CHECKPOINT_COUNT; i++)
-    averages[i] = totals[i] / TIME_RUNS;
-
-  statistics->successes = successes;
-  statistics->successPercent = 100.0 * successes / TIME_RUNS;
-  statistics->evaluationsPerSecond =
-      totalElapsedMs > 0.0 ? totalEvaluations * 1000.0 / totalElapsedMs : 0.0;
-  statistics->medianSuccessMs = NAN;
-  if (successes > 0) {
-    qsort(successTimes, successes, sizeof(double), CompareDouble);
-    statistics->medianSuccessMs =
-        successes % 2 == 0
-            ? (successTimes[successes / 2 - 1] + successTimes[successes / 2]) *
-                  0.5
-            : successTimes[successes / 2];
-  }
+    statistics->successes = successes;
+    statistics->successPercent = 100.0 * successes / timeRunCount;
+    statistics->evaluationsPerSecond = totalEvaluations * 1000.0 /
+        (timeRunCount * TimeCheckpointsMs[TIME_CHECKPOINT_COUNT - 1]);
+    statistics->medianSuccessMs = NAN;
+    if (successes)
+    {
+        qsort(successTimes, successes, sizeof(double), CompareDouble);
+        statistics->medianSuccessMs = successes % 2 ? successTimes[successes / 2] :
+            (successTimes[successes / 2 - 1] + successTimes[successes / 2]) / 2;
+    }
 }
 
 static void PrintEvaluationHeader(void) {
@@ -233,7 +431,7 @@ static void PrintFinalStatisticsHeader(void) {
 static void PrintEvaluationResult(const char *name, const double *averages) {
   printf("%-24s", name);
   for (int i = 0; i < CHECKPOINT_COUNT; i++)
-    printf(" %12.6f", averages[i]);
+    printf(" %12.5e", averages[i]);
   printf("\n");
 }
 
@@ -246,7 +444,7 @@ static void PrintTimeResult(const char *name, const double *averages) {
 
 static void PrintFinalStatistics(const char *name,
                                  const FinalStatistics *statistics) {
-  printf("%-24s %12.6f %12.6f %12.6f %12.6f %9.1f%%\n", name, statistics->mean,
+  printf("%-24s %12.5e %12.5e %12.5e %12.5e %9.1f%%\n", name, statistics->mean,
          statistics->median, statistics->best, statistics->worst,
          statistics->successPercent);
 }
@@ -328,6 +526,7 @@ static int LoadOptimizerList(const char *filename, int *selected) {
 }
 
 int main(int argc, char *argv[]) {
+  setvbuf(stdout, NULL, _IOLBF, 0);
   int runTimeBenchmark = 0;
   int diagnostics = 0;
   const char *optimizerListFile = NULL;
@@ -336,13 +535,55 @@ int main(int argc, char *argv[]) {
     selected[i] = 1;
 
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "-t") == 0)
+    if (strcmp(argv[i], "-seed") == 0 || strcmp(argv[i], "-runs") == 0)
+    {
+      int seeds = strcmp(argv[i], "-seed") == 0;
+      if (++i >= argc)
+        return 1;
+      char *end;
+      unsigned long parsed = strtoul(argv[i], &end, 10);
+      if (!argv[i][0] || argv[i][0] == '-' || *end || parsed > 2147483647ul ||
+          (!seeds && (parsed == 0 || parsed > 10000)))
+        return 1;
+      if (seeds)
+        baseSeed = (unsigned int)parsed;
+      else
+        runCount = (int)parsed;
+    }
+    else if (strcmp(argv[i], "-run-offset") == 0 || strcmp(argv[i], "-time-runs") == 0)
+    {
+      int offset = strcmp(argv[i], "-run-offset") == 0;
+      if (++i >= argc)
+        return 1;
+      char *end;
+      unsigned long parsed = strtoul(argv[i], &end, 10);
+      if (!argv[i][0] || argv[i][0] == '-' || *end || parsed > 1000000ul ||
+          (!offset && (parsed == 0 || parsed > 10000)))
+        return 1;
+      if (offset)
+        runOffset = (int)parsed;
+      else
+        timeRunCount = (int)parsed;
+    }
+    else if (strcmp(argv[i], "-csv") == 0)
+    {
+      if (++i >= argc || detailFile)
+        return 1;
+      detailFile = fopen(argv[i], "w");
+      if (!detailFile)
+      {
+        perror(argv[i]);
+        return 1;
+      }
+      fprintf(detailFile, "problem,algorithm,run,seed,budget,best,actual_calls,start_x,start_y,first_success_eval\n");
+    }
+    else if (strcmp(argv[i], "-t") == 0)
       runTimeBenchmark = 1;
     else if (strcmp(argv[i], "-d") == 0)
       diagnostics = 1;
     else if (strcmp(argv[i], "-optlist") == 0) {
       if (++i >= argc || optimizerListFile != NULL) {
-        fprintf(stderr, "Usage: %s [-t] [-d] [-optlist filename]\n", argv[0]);
+        fprintf(stderr, "Usage: %s [-t] [-d] [-optlist filename] [-seed N] [-runs N] [-csv filename] [-run-offset N] [-time-runs N]\n", argv[0]);
         return 1;
       }
       optimizerListFile = argv[i];
@@ -358,17 +599,20 @@ int main(int argc, char *argv[]) {
       return 1;
   }
 
-  srand((unsigned int)time(NULL));
+
   TestProblem *problems[] = {&SphereProblem,     &RastriginProblem,
                              &RosenbrockProblem, &AckleyProblem,
                              &HimmelblauProblem, &GriewankProblem};
   int problemCount = sizeof(problems) / sizeof(problems[0]);
 
   printf("Evaluation benchmark\n");
-  printf("Runs per algorithm: %d\n", RUNS);
+  printf("Runs per algorithm: %d\n", runCount);
+  printf("Base seed: %u; paired per-run seeds and ScoutsD/NOMAD starts\n", baseSeed);
+  printf("Exact objective-call checkpoints; initialization included\n");
   printf("Metric: average best value reached\n\n");
 
   for (int p = 0; p < problemCount; p++) {
+    problemIndex = p;
     printf("%s\n\n", problems[p]->name);
     PrintEvaluationHeader();
     FinalStatistics statistics[OptimizerCount];
@@ -395,14 +639,17 @@ int main(int argc, char *argv[]) {
 
   if (runTimeBenchmark) {
     printf("\nTime benchmark\n");
-    printf("Runs per algorithm: %d\n", TIME_RUNS);
+    printf("Runs per algorithm: %d\n", timeRunCount);
     printf("Metric: average best value reached\n");
     printf("Time checkpoints in milliseconds\n");
     printf("Median hit time is for successful runs only; N/A means no "
            "successes.\n");
-    printf("Eval/s counts evaluations after Init, during timed steps.\n\n");
+    printf("Timing includes Init; samples use the last completed objective at each deadline.\n");
+    printf("Eval/s counts completed evaluations within 300 ms, including Init.\n");
+    printf("NOMAD runs to its evaluation limit; recorded timestamps select time results.\n\n");
 
     for (int p = 0; p < problemCount; p++) {
+      problemIndex = p;
       printf("%s\n\n", problems[p]->name);
       PrintTimeHeader();
       TimeStatistics statistics[OptimizerCount];
@@ -424,5 +671,7 @@ int main(int argc, char *argv[]) {
       printf("\n");
     }
   }
+  if (detailFile && fclose(detailFile) != 0)
+    return 1;
   return 0;
 }

@@ -1,29 +1,9 @@
-
 #!/bin/bash
 
 printf '\e[8;48;160t'
 
-# Compile benchmark
-gcc -Wall -Wextra -O2 \
-    opt_bench_interactive.c \
-    optimizers.c \
-    problems.c \
-    HillClimbInteractive.c \
-    DifferentialEvolutionInteractive.c \
-    ScoutHQInteractive.c \
-    RandomHalvingInteractive.c \
-    ScoutsInteractiveA.c \
-    ScoutsInteractiveB.c \
-    ScoutsInteractiveD.c \
-    NelderMeadInteractive.c \
-    TabuSearchInteractive.c \
-    BasinHoppingInteractive.c \
-    ScoutsInteractiveE.c \
-    ScoutsInteractiveF.c \
-    ScoutsInteractiveG.c \
-    ScoutsInteractiveH.c \
-    -lm \
-    -o opt_bench || exit 1
+# Compile C optimizers and the C++ NOMAD adapter into /tmp.
+BENCHMARK_EXECUTABLE=$(bash ./nomad_benchmark_build.sh) || exit 1
 
 # Create timestamped results file
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
@@ -33,7 +13,7 @@ mkdir -p benchmark_results
 RESULTS_FILE="benchmark_results/benchmark_results_$TIMESTAMP.txt"
 
 # Run benchmark and save output
-taskset -c 2 ./opt_bench "$@" | tee "$RESULTS_FILE"
+taskset -c 2 "$BENCHMARK_EXECUTABLE" "$@" | tee "$RESULTS_FILE"
 BENCHMARK_STATUS=${PIPESTATUS[0]}
 
 if [ "$BENCHMARK_STATUS" -ne 0 ]

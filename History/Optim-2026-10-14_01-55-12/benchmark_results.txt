@@ -1,0 +1,18 @@
+Runs per algorithm: 50
+Max evaluations per run: 100000
+
+Sphere           ExploreExploit         avg value:     0.000000  best:     0.000000  worst:     0.000001  avg distance:   0.000309  avg time: 0.014049 s
+Sphere           RandomSearch           avg value:     0.000356  best:     0.000007  worst:     0.002071  avg distance:   0.016869  avg time: 0.001513 s
+Sphere           HillClimb              avg value:     0.000000  best:     0.000000  worst:     0.000000  avg distance:   0.000000  avg time: 0.002232 s
+Sphere           DifferentialEvolution  avg value:     0.000000  best:     0.000000  worst:     0.000000  avg distance:   0.000000  avg time: 0.005401 s
+
+Rastrigin        ExploreExploit         avg value:     0.097517  best:     0.000164  worst:     0.995129  avg distance:   0.031585  avg time: 0.016681 s
+Rastrigin        RandomSearch           avg value:     0.057020  best:     0.000479  worst:     0.283921  avg distance:   0.015185  avg time: 0.004512 s
+Rastrigin        HillClimb              avg value:     5.870239  best:     0.000000  worst:    24.873845  avg distance:   2.100007  avg time: 0.002930 s
+Rastrigin        DifferentialEvolution  avg value:     0.000000  best:     0.000000  worst:     0.000000  avg distance:   0.000000  avg time: 0.005820 s
+
+Rosenbrock       ExploreExploit         avg value:     0.000001  best:     0.000000  worst:     0.000006  avg distance:   0.001343  avg time: 0.015190 s
+Rosenbrock       RandomSearch           avg value:     0.000539  best:     0.000004  worst:     0.002113  avg distance:   0.028427  avg time: 0.001690 s
+Rosenbrock       HillClimb              avg value:     0.603087  best:     0.000000  worst:     1.866372  avg distance:   0.956870  avg time: 0.001570 s
+Rosenbrock       DifferentialEvolution  avg value:     0.000000  best:     0.000000  worst:     0.000000  avg distance:   0.000000  avg time: 0.004621 s
+
