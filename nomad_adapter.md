@@ -99,3 +99,28 @@ dimensions, domains, constraints, noisy objectives, or alternative NOMAD setting
 `-csv` records evaluation-checkpoint data only; `-t` writes timing tables to
 standard output. The saved 200-run experiment is in
 `nomad_comparison_results.csv` and `nomad_comparison_results.md`.
+
+## NOMAD in opt_view
+
+`./build_view.sh` builds the SDL viewer with NOMAD enabled and starts with NOMAD
+selected. The executable and object files are written to `/tmp`. Existing history
+backup and Git steps in build_view.sh are preserved; tests do not execute them.
+
+The viewer computes a complete standard MADS run on initialization, then plays
+back its actual black-box evaluation history. It does not rerun objectives when
+stepping, and it does not use Suggest-and-Observe. Initial computation may briefly
+pause the viewer. This shows evaluated points and incumbents, not live internal
+poll meshes, rejected cached candidates, or model-only trial points.
+
+Controls: Space reveals one evaluation; Enter reveals up to 100; R starts a new
+independent run; Tab cycles optimizers; P cycles problems; Escape closes the
+viewer. Evaluated points are magenta, the current evaluation is white, the
+running best is green, and known optima are cyan. The title reports best value,
+revealed/total evaluations, NOMAD seed, and `stopped` at the end of playback.
+No artificial evaluations are added after termination.
+
+The viewer has `--smoke-test` for headless SDL rendering of all six problems and
+control checks. Use `bash nomad_benchmark_build.sh --view` to build without the
+backup/Git steps, then run the resulting executable with that flag. Replay
+correctness is also tested in nomad_view_test.c against an independently run
+NOMAD history, including stop, cleanup, and repeated independent initialization.

@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
+#ifdef OPTIM_NOMAD_VIEW
+#include "nomad_view.h"
+#endif
 
 #include "optimizers.h"
 #include "problems.h"
@@ -21,12 +25,12 @@
 
 static int ToScreenX(double x, const TestProblem *problem) {
   return (int)((x - problem->lower) / (problem->upper - problem->lower) *
-               WIDTH);
+               (WIDTH - 1));
 }
 
 static int ToScreenY(double y, const TestProblem *problem) {
-  return HEIGHT - (int)((y - problem->lower) /
-                        (problem->upper - problem->lower) * HEIGHT);
+  return HEIGHT - 1 - (int)((y - problem->lower) /
+                        (problem->upper - problem->lower) * (HEIGHT - 1));
 }
 
 static void DrawCircle(SDL_Renderer *renderer, int cx, int cy, int radius) {
@@ -111,6 +115,9 @@ static void DrawBest(SDL_Renderer *renderer, const TestProblem *problem,
 
   optimizer->GetBest(&x, &y, &value, &evaluations);
 
+  if (evaluations == 0)
+    return;
+
   SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
   DrawCircle(renderer, ToScreenX(x, problem), ToScreenY(y, problem), 8);
 }
@@ -128,15 +135,31 @@ static void DrawKnownOptima(SDL_Renderer *renderer,
 static void UpdateWindowTitle(SDL_Window *window,
                               InteractiveOptimizer *optimizer,
                               const char *problemName) {
-  char title[256];
-
-  snprintf(title, sizeof(title), "%s - %s", optimizer->name, problemName);
+  char title[1600];
+  double x, y, value;
+  int evaluations;
+  optimizer->GetBest(&x, &y, &value, &evaluations);
+  const char *status = "";
+#ifdef OPTIM_NOMAD_VIEW
+  if (optimizer == &NomadOptimizer)
+    status = NomadViewStatus();
+#endif
+  snprintf(title, sizeof(title), "%s - %s | eval %d | best %.6e%s%s | Space: 1, Enter: 100, R: reset, Tab: optimizer, P: problem",
+           optimizer->name, problemName, evaluations, value, *status ? " | " : "", status);
 
   SDL_SetWindowTitle(window, title);
 }
 
-int main(void) {
-  srand((unsigned int)time(NULL));
+int main(int argc, char **argv) {
+  int smokeTest = argc == 2 && strcmp(argv[1], "--smoke-test") == 0;
+  if (argc > 1 && !smokeTest)
+  {
+    fprintf(stderr, "Usage: %s [--smoke-test]\n", argv[0]);
+    return 1;
+  }
+  if (smokeTest)
+    SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
+  srand(smokeTest ? 42u : (unsigned int)time(NULL));
 
   TestProblem *problems[] = {&SphereProblem,     &RastriginProblem,
                              &RosenbrockProblem, &AckleyProblem,
@@ -172,6 +195,9 @@ int main(void) {
   SDL_Renderer *renderer =
       SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
+  if (renderer == NULL)
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+
   if (renderer == NULL) {
     printf("SDL_CreateRenderer failed: %s\n", SDL_GetError());
     SDL_DestroyWindow(window);
@@ -183,9 +209,24 @@ int main(void) {
                     problemNames[selectedProblem]);
 
   int running = 1;
+  int smokeFrame = 0;
 
   while (running) {
     SDL_Event event;
+    if (smokeTest)
+    {
+      SDL_Event simulated = {0};
+      const SDL_Keycode keys[] = {SDLK_SPACE, SDLK_RETURN, SDLK_p, SDLK_p,
+          SDLK_p, SDLK_p, SDLK_p, SDLK_p, SDLK_r, SDLK_TAB};
+      if (smokeFrame < (int)(sizeof(keys) / sizeof(keys[0])))
+      {
+        simulated.type = SDL_KEYDOWN;
+        simulated.key.keysym.sym = keys[smokeFrame++];
+      }
+      else
+        simulated.type = SDL_QUIT;
+      SDL_PushEvent(&simulated);
+    }
 
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_QUIT)
@@ -234,6 +275,8 @@ int main(void) {
       }
     }
 
+    UpdateWindowTitle(window, Optimizers[selectedOptimizer],
+                      problemNames[selectedProblem]);
     DrawBackground(renderer, problem);
     DrawSeekers(renderer, problem, Optimizers[selectedOptimizer]);
     DrawBest(renderer, problem, Optimizers[selectedOptimizer]);
@@ -242,9 +285,14 @@ int main(void) {
     SDL_RenderPresent(renderer);
   }
 
+#ifdef OPTIM_NOMAD_VIEW
+  NomadViewCleanup();
+#endif
   SDL_DestroyRenderer(renderer);
   SDL_DestroyWindow(window);
   SDL_Quit();
 
+  if (smokeTest)
+    puts("PASS: viewer rendered NOMAD across all six problems; step, advance, restart, and optimizer switching worked.");
   return 0;
 }

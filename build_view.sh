@@ -1,27 +1,7 @@
 #!/bin/bash
 
-gcc -Wall -Wextra -O2 \
-    opt_view.c \
-    optimizers.c \
-    HillClimbInteractive.c \
-    DifferentialEvolutionInteractive.c \
-    ScoutHQInteractive.c \
-    RandomHalvingInteractive.c \
-    ScoutsInteractiveA.c \
-    ScoutsInteractiveB.c \
-    ScoutsInteractiveD.c \
-    NelderMeadInteractive.c \
-    BasinHoppingInteractive.c \
-    TabuSearchInteractive.c \
-    ScoutsInteractiveE.c \
-    ScoutsInteractiveF.c \
-    ScoutsInteractiveG.c \
-    ScoutsInteractiveH.c \
-    problems.c \
-    -lSDL2 -lm \
-    -o opt_view || exit 1
-
-./opt_view
+VIEW_EXECUTABLE=$(bash ./nomad_benchmark_build.sh --view) || exit 1
+"$VIEW_EXECUTABLE" "$@" || exit 1
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 DESTINATION="History/Optim-$TIMESTAMP"

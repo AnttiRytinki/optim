@@ -23,7 +23,9 @@ double RandomDouble(double min, double max) {
   return min + (max - min) * ((double)rand() / (double)RAND_MAX);
 }
 
-#ifdef OPTIM_WITH_NOMAD
+#if defined(OPTIM_WITH_NOMAD) && defined(OPTIM_NOMAD_VIEW)
+extern InteractiveOptimizer NomadOptimizer;
+#elif defined(OPTIM_WITH_NOMAD)
 /* Batch-only entry: the benchmark dispatches through nomad_adapter.h. */
 InteractiveOptimizer NomadOptimizer = {"NOMAD", NULL, NULL, NULL, NULL, NULL};
 #endif
